@@ -1,0 +1,83 @@
+const mongoose = require("mongoose")
+
+const teacherSchema = new mongoose.Schema({
+    name: {
+        type: String,
+        required: true,
+    },
+    email: {
+        type: String,
+        required: true,
+    },
+    password: {
+        type: String,
+        required: true,
+    },
+    role: {
+        type: String,
+        default: "Teacher"
+    },
+    school: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'admin',
+        required: true,
+    },
+    teachSubject: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'subject',
+    },
+    teachSclass: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'sclass',
+        required: true,
+    },
+    salary: {
+        type: Number,
+        default: 0,
+    },
+    salaryHistory: [
+        {
+            amount: { type: Number, required: true },
+            method: { type: String, default: 'Cash' },
+            note: { type: String, default: '' },
+            reference: { type: String, default: '' },
+            paidBy: {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: 'admin',
+            },
+            date: {
+                type: Date,
+                default: Date.now,
+            },
+            status: {
+                type: String,
+                enum: ['Paid', 'Pending', 'Failed'],
+                default: 'Paid',
+            },
+        }
+    ],
+    attendance: [{
+        date: {
+            type: Date,
+            required: true
+        },
+        presentCount: {
+            type: String,
+        },
+        absentCount: {
+            type: String,
+        }
+    }],
+    resetPasswordToken: {
+        type: String,
+        default: ''
+    },
+    resetPasswordExpires: {
+        type: Date,
+        default: null
+    }
+}, { timestamps: true });
+
+teacherSchema.index({ school: 1, email: 1 }, { unique: true });
+
+module.exports = mongoose.model("teacher", teacherSchema)

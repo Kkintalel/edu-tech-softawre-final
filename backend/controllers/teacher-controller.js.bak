@@ -1,0 +1,505 @@
+const bcrypt = require('bcrypt');
+const crypto = require('crypto');
+const Teacher = require('../models/teacherSchema.js');
+const Admin = require('../models/adminSchema.js');
+const Subject = require('../models/subjectSchema.js');
+const { sendResetPasswordLink, sendPasswordResetEmail } = require('../services/emailService.js');
+const { logAuditAction } = require('../utils/auditLogger');
+const { validateTeacherInput, validatePassword } = require('../utils/validation.js');
+const { getAdminIdFromReq, verifySchoolId, verifyEntityBelongsToAdminSchool } = require('../middleware/schoolAccess.js');
+
+const teacherRegister = async (req, res) => {
+    const { name, email, password, role, teachSubject, teachSclass, salary } = req.body;
+    const school = getAdminIdFromReq(req);
+    
+    try {
+        // Validate input
+        const validation = validateTeacherInput(req.body);
+        if (!validation.valid) {
+            return res.status(400).json({ message: 'Validation errors', errors: validation.errors });
+        }
+        if (salary !== undefined && typeof salary !== 'number' && isNaN(Number(salary))) {
+            return res.status(400).json({ message: 'Salary must be a valid number' });
+        }
+        if (salary !== undefined && Number(salary) < 0) {
+            return res.status(400).json({ message: 'Salary cannot be negative' });
+        }
+
+        // Validate password
+        const passwordValidation = validatePassword(password);
+        if (!passwordValidation.valid) {
+            return res.status(400).json({ message: passwordValidation.error });
+        }
+
+        const salt = await bcrypt.genSalt(10);
+        const hashedPass = await bcrypt.hash(password, salt);
+
+        const teacher = new Teacher({ name, email, password: hashedPass, role, school, teachSubject, teachSclass, salary: salary !== undefined ? Number(salary) : undefined });
+
+        const existingTeacherByEmail = await Teacher.findOne({ email, school });
+
+        if (existingTeacherByEmail) {
+            res.send({ message: 'Email already exists for this school' });
+        }
+        else {
+            let result = await teacher.save();
+            await Subject.findByIdAndUpdate(teachSubject, { teacher: teacher._id });
+            result.password = undefined;
+            
+            // Log the action
+            await logAuditAction({
+                school,
+                user: school,
+                action: 'CREATE',
+                entityType: 'Teacher',
+                entityId: result._id,
+                status: 'Success',
+                details: `Teacher ${name} registered`,
+            });
+            
+            res.send(result);
+        }
+    } catch (err) {
+        res.status(500).json(err);
+    }
+};
+
+const mongoose = require('mongoose');
+const { findTeacher } = require('../testdb');
+
+const teacherLogIn = async (req, res) => {
+    try {
+        // Fallback to in-memory DB if mongoose not connected
+        if (mongoose.connection.readyState !== 1) {
+            const teacher = findTeacher(req.body.email);
+            if (!teacher) return res.status(404).send({ message: 'Teacher not found' });
+            const validated = await bcrypt.compare(req.body.password, teacher.password);
+            if (!validated) return res.status(401).send({ message: 'Invalid password' });
+            const safe = { ...teacher };
+            delete safe.password;
+            return res.send(safe);
+        }
+
+        let teacher = await Teacher.findOne({ email: req.body.email });
+        if (teacher) {
+            const validated = await bcrypt.compare(req.body.password, teacher.password);
+            if (validated) {
+                teacher = await teacher.populate("teachSubject", "subName sessions")
+                teacher = await teacher.populate("school", "schoolName")
+                teacher = await teacher.populate("teachSclass", "sclassName")
+                teacher.password = undefined;
+                res.send(teacher);
+            } else {
+                res.status(401).send({ message: "Invalid password", role: "Teacher" });
+            }
+        } else {
+            res.status(404).send({ message: "Teacher not found", role: "Teacher" });
+        }
+    } catch (err) {
+        res.status(500).json(err);
+    }
+};
+
+const getTeachers = async (req, res) => {
+    try {
+        if (!(await verifySchoolId(req, res, req.params.id))) return;
+
+        const query = { school: req.params.id };
+        if (req.query.email) {
+            const emailSearch = req.query.email.trim();
+            if (emailSearch.length > 0) {
+                query.email = { $regex: emailSearch, $options: 'i' };
+            }
+        }
+
+        let teachers = await Teacher.find(query)
+            .populate("teachSubject", "subName")
+            .populate("teachSclass", "sclassName");
+        if (teachers.length > 0) {
+            let modifiedTeachers = teachers.map((teacher) => {
+                return { ...teacher._doc, password: undefined };
+            });
+            res.send(modifiedTeachers);
+        } else {
+            res.send({ message: "No teachers found" });
+        }
+    } catch (err) {
+        res.status(500).json(err);
+    }
+};
+
+const getTeacherDetail = async (req, res) => {
+    try {
+        let teacher = await Teacher.findById(req.params.id)
+            .populate("teachSubject", "subName sessions")
+            .populate("school", "schoolName")
+            .populate("teachSclass", "sclassName")
+        if (!(await verifyEntityBelongsToAdminSchool(req, res, teacher))) return;
+        if (teacher) {
+            teacher.password = undefined;
+            res.send(teacher);
+        }
+        else {
+            res.send({ message: "No teacher found" });
+        }
+    } catch (err) {
+        res.status(500).json(err);
+    }
+}
+
+const updateTeacherSubject = async (req, res) => {
+    const { teacherId, teachSubject } = req.body;
+    try {
+        const teacher = await Teacher.findById(teacherId);
+        if (!(await verifyEntityBelongsToAdminSchool(req, res, teacher))) return;
+        const updatedTeacher = await Teacher.findByIdAndUpdate(
+            teacherId,
+            { teachSubject },
+            { new: true }
+        );
+
+        await Subject.findByIdAndUpdate(teachSubject, { teacher: updatedTeacher._id });
+
+        res.send(updatedTeacher);
+    } catch (error) {
+        res.status(500).json(error);
+    }
+};
+
+const updateTeacherRole = async (req, res) => {
+    const { teacherId, role } = req.body;
+    try {
+        const teacher = await Teacher.findById(teacherId);
+        if (!(await verifyEntityBelongsToAdminSchool(req, res, teacher))) return;
+        const updatedTeacher = await Teacher.findByIdAndUpdate(
+            teacherId,
+            { role },
+            { new: true }
+        )
+            .populate('teachSubject', 'subName sessions')
+            .populate('school', 'schoolName')
+            .populate('teachSclass', 'sclassName');
+
+        if (!updatedTeacher) {
+            return res.status(404).send({ message: 'Teacher not found' });
+        }
+
+        updatedTeacher.password = undefined;
+        res.send(updatedTeacher);
+    } catch (error) {
+        res.status(500).json(error);
+    }
+};
+
+const updateTeacher = async (req, res) => {
+    const { name, email, role, teachSubject, teachSclass, salary } = req.body;
+    try {
+        const teacher = await Teacher.findById(req.params.id);
+        if (!(await verifyEntityBelongsToAdminSchool(req, res, teacher))) return;
+        if (!teacher) {
+            return res.status(404).send({ message: 'Teacher not found' });
+        }
+
+        if (email && email !== teacher.email) {
+            const existingTeacher = await Teacher.findOne({
+                email,
+                school: teacher.school,
+                _id: { $ne: teacher._id }
+            });
+            if (existingTeacher) {
+                return res.status(400).send({ message: 'Email already exists for this school' });
+            }
+        }
+
+        if (teachSubject) {
+            const assignedSubject = await Subject.findOne({
+                _id: teachSubject,
+                teacher: { $exists: true, $ne: teacher._id }
+            });
+            if (assignedSubject) {
+                return res.status(400).send({ message: 'This subject is already assigned to another teacher' });
+            }
+        }
+
+        const updateData = {};
+        if (name) updateData.name = name;
+        if (email) updateData.email = email;
+        if (role) updateData.role = role;
+        if (teachSclass) updateData.teachSclass = teachSclass;
+        if (teachSubject !== undefined) updateData.teachSubject = teachSubject || null;
+        if (salary !== undefined) updateData.salary = Number(salary);
+
+        const previousSubjectId = teacher.teachSubject ? teacher.teachSubject.toString() : null;
+        const updatedTeacher = await Teacher.findByIdAndUpdate(
+            req.params.id,
+            updateData,
+            { new: true }
+        )
+            .populate('teachSubject', 'subName sessions')
+            .populate('school', 'schoolName')
+            .populate('teachSclass', 'sclassName');
+
+        if (teachSubject !== undefined && previousSubjectId && previousSubjectId !== teachSubject) {
+            await Subject.findByIdAndUpdate(previousSubjectId, { $unset: { teacher: '' } });
+        }
+
+        if (teachSubject) {
+            await Subject.findByIdAndUpdate(teachSubject, { teacher: updatedTeacher._id });
+        }
+
+        updatedTeacher.password = undefined;
+        res.send(updatedTeacher);
+    } catch (error) {
+        res.status(500).json(error);
+    }
+};
+
+const deleteTeacher = async (req, res) => {
+    try {
+        const teacher = await Teacher.findById(req.params.id);
+        if (!(await verifyEntityBelongsToAdminSchool(req, res, teacher))) return;
+        const deletedTeacher = await Teacher.findByIdAndDelete(req.params.id);
+
+        await Subject.updateOne(
+            { teacher: deletedTeacher._id, teacher: { $exists: true } },
+            { $unset: { teacher: 1 } }
+        );
+
+        res.send(deletedTeacher);
+    } catch (error) {
+        res.status(500).json(error);
+    }
+};
+
+const payTeacherSalary = async (req, res) => {
+    try {
+        const teacher = await Teacher.findById(req.params.id);
+        if (!teacher) {
+            return res.status(404).send({ message: 'Teacher not found' });
+        }
+        if (!(await verifyEntityBelongsToAdminSchool(req, res, teacher))) return;
+
+        const { amount, paymentMethod = 'Cash', note = '', reference = '' } = req.body;
+        const numericAmount = Number(amount);
+
+        if (!numericAmount || numericAmount <= 0) {
+            return res.status(400).send({ message: 'Amount must be greater than zero' });
+        }
+
+        teacher.salaryHistory = teacher.salaryHistory || [];
+        teacher.salaryHistory.push({
+            amount: numericAmount,
+            method: paymentMethod,
+            note,
+            reference,
+            paidBy: getAdminIdFromReq(req),
+            date: new Date(),
+            status: 'Paid',
+        });
+
+        await teacher.save();
+        teacher.password = undefined;
+        res.send({ message: 'Salary payment recorded', teacher });
+    } catch (error) {
+        res.status(500).json(error);
+    }
+};
+
+const deleteTeachers = async (req, res) => {
+    try {
+        if (!(await verifySchoolId(req, res, req.params.id))) return;
+        const deletionResult = await Teacher.deleteMany({ school: req.params.id });
+
+        const deletedCount = deletionResult.deletedCount || 0;
+
+        if (deletedCount === 0) {
+            res.send({ message: "No teachers found to delete" });
+            return;
+        }
+
+        const deletedTeachers = await Teacher.find({ school: req.params.id });
+
+        await Subject.updateMany(
+            { teacher: { $in: deletedTeachers.map(teacher => teacher._id) }, teacher: { $exists: true } },
+            { $unset: { teacher: "" }, $unset: { teacher: null } }
+        );
+
+        res.send(deletionResult);
+    } catch (error) {
+        res.status(500).json(error);
+    }
+};
+
+const deleteTeachersByClass = async (req, res) => {
+    try {
+        const adminId = req.get('x-admin-id') || req.body.adminID || req.query.adminID || req.query.adminId;
+        const query = { sclassName: req.params.id };
+        if (adminId) query.school = adminId;
+        const deletionResult = await Teacher.deleteMany(query);
+
+        const deletedCount = deletionResult.deletedCount || 0;
+
+        if (deletedCount === 0) {
+            res.send({ message: "No teachers found to delete" });
+            return;
+        }
+
+        const deletedTeachers = await Teacher.find({ sclassName: req.params.id });
+
+        await Subject.updateMany(
+            { teacher: { $in: deletedTeachers.map(teacher => teacher._id) }, teacher: { $exists: true } },
+            { $unset: { teacher: "" }, $unset: { teacher: null } }
+        );
+
+        res.send(deletionResult);
+    } catch (error) {
+        res.status(500).json(error);
+    }
+};
+
+const teacherAttendance = async (req, res) => {
+    const { status, date } = req.body;
+
+    try {
+        const teacher = await Teacher.findById(req.params.id);
+        if (!(await verifyEntityBelongsToAdminSchool(req, res, teacher))) return;
+
+        if (!teacher) {
+            return res.send({ message: 'Teacher not found' });
+        }
+
+        const existingAttendance = teacher.attendance.find(
+            (a) =>
+                a.date.toDateString() === new Date(date).toDateString()
+        );
+
+        if (existingAttendance) {
+            existingAttendance.status = status;
+        } else {
+            teacher.attendance.push({ date, status });
+        }
+
+        const result = await teacher.save();
+        return res.send(result);
+    } catch (error) {
+        res.status(500).json(error)
+    }
+};
+
+const requestTeacherPasswordReset = async (req, res) => {
+    try {
+        const teacher = await Teacher.findOne({ email: req.body.email });
+        if (!teacher) {
+            return res.status(404).send({ message: 'Teacher not found' });
+        }
+
+        const token = crypto.randomBytes(32).toString('hex');
+        teacher.resetPasswordToken = token;
+        teacher.resetPasswordExpires = Date.now() + 3600000; // 1 hour
+        await teacher.save();
+
+        const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/Teacher/reset-password/${token}`;
+        const emailResult = await sendResetPasswordLink(teacher.email, teacher.name, resetUrl);
+
+        res.send({ message: 'Password reset link sent', emailResult });
+    } catch (error) {
+        res.status(500).json(error);
+    }
+};
+
+const resetTeacherPassword = async (req, res) => {
+    try {
+        const { token } = req.params;
+        const { password } = req.body;
+
+        const teacher = await Teacher.findOne({
+            resetPasswordToken: token,
+            resetPasswordExpires: { $gt: Date.now() }
+        });
+
+        if (!teacher) {
+            return res.status(400).send({ message: 'Invalid or expired token' });
+        }
+
+        const salt = await bcrypt.genSalt(10);
+        teacher.password = await bcrypt.hash(password, salt);
+        teacher.resetPasswordToken = '';
+        teacher.resetPasswordExpires = null;
+
+        await teacher.save();
+        res.send({ message: 'Password reset successfully' });
+    } catch (error) {
+        res.status(500).json(error);
+    }
+};
+
+// Admin-driven teacher password reset (Admin or SuperAdmin)
+const resetTeacherPasswordByAdmin = async (req, res) => {
+    try {
+        const adminId = getAdminIdFromReq(req);
+        const teacherId = req.params.teacherId || req.params.id;
+        const { newPassword } = req.body;
+
+        if (!newPassword) return res.status(400).send({ message: 'newPassword is required' });
+
+        const teacher = await Teacher.findById(teacherId);
+        if (!teacher) return res.status(404).send({ message: 'Teacher not found' });
+
+        // Verify the requesting admin belongs to same school or is SuperAdmin
+        if (!(await verifyEntityBelongsToAdminSchool(req, res, teacher))) return;
+
+        const salt = await bcrypt.genSalt(10);
+        teacher.password = await bcrypt.hash(newPassword, salt);
+        await teacher.save();
+
+        // Send notification email with temporary password (best-effort)
+        try {
+            await sendPasswordResetEmail(teacher.email, teacher.name, newPassword);
+        } catch (emailErr) {
+            console.error('Failed to send password email to teacher:', emailErr);
+        }
+
+        // Audit log the password reset
+        try {
+            const adminRecord = await Admin.findById(adminId);
+            const actorRole = adminRecord ? (adminRecord.role || 'Admin') : 'Admin';
+            await logAuditAction({
+                school: teacher.school,
+                user: adminId,
+                userName: adminRecord ? adminRecord.name : undefined,
+                userRole: actorRole,
+                action: 'RESET_PASSWORD',
+                entityType: 'Teacher',
+                entityId: teacher._id,
+                entityName: teacher.email,
+                ipAddress: req.clientIP || null,
+                userAgent: req.userAgent || req.get('user-agent') || '',
+                resultMessage: 'Password reset by admin'
+            });
+        } catch (logErr) {
+            console.error('Failed to write audit log for teacher password reset:', logErr);
+        }
+
+        res.send({ message: 'Password reset successfully' });
+    } catch (err) {
+        res.status(500).json(err);
+    }
+};
+
+module.exports = {
+    teacherRegister,
+    teacherLogIn,
+    getTeachers,
+    getTeacherDetail,
+    updateTeacher,
+    updateTeacherSubject,
+    updateTeacherRole,
+    deleteTeacher,
+    deleteTeachers,
+    deleteTeachersByClass,
+    teacherAttendance,
+    payTeacherSalary,
+    requestTeacherPasswordReset,
+    resetTeacherPassword,
+    resetTeacherPasswordByAdmin
+};

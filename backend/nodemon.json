@@ -1,0 +1,13 @@
+{
+  "watch": ["./"],
+  "ignore": [
+    "../frontend",
+    "../frontend/**",
+    "../**/frontend/**",
+    "uploads/**",
+    "build/**",
+    "public/**",
+    "node_modules/**"
+  ],
+  "ext": "js,json"
+}

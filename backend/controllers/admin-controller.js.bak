@@ -1,0 +1,771 @@
+const bcrypt = require('bcrypt');
+const crypto = require('crypto');
+const Admin = require('../models/adminSchema.js');
+const Sclass = require('../models/sclassSchema.js');
+const Student = require('../models/studentSchema.js');
+const Teacher = require('../models/teacherSchema.js');
+const Subject = require('../models/subjectSchema.js');
+const Notice = require('../models/noticeSchema.js');
+const Complain = require('../models/complainSchema.js');
+const { sendAdminApprovalEmail, sendAdminRejectionEmail, sendResetPasswordLink } = require('../services/emailService.js');
+const { validateAdminInput, validatePassword } = require('../utils/validation.js');
+
+const VALID_ADMIN_ROLES = ['SuperAdmin', 'Admin'];
+const DEFAULT_ADMIN_PERMISSIONS = {
+    manageTeachers: true,
+    manageStudents: true,
+    manageClasses: true,
+    assignSubjects: true,
+    manageAttendance: true,
+    manageExaminations: true,
+    manageFees: true,
+    generateReports: true,
+    sendAnnouncements: true,
+    manageTimetables: true,
+    createAccounts: true,
+    updateSchoolProfile: true,
+    manageAcademicCalendar: true,
+    manageGradingSystem: true,
+    managePolicies: true,
+    resetPasswords: true,
+    sendBulkSMS: true,
+    sendBulkEmail: true
+};
+
+const DEFAULT_ACCOUNTANT_PERMISSIONS = {
+    manageTeachers: false,
+    manageStudents: false,
+    manageClasses: false,
+    assignSubjects: false,
+    manageAttendance: false,
+    manageExaminations: false,
+    manageFees: true,
+    generateReports: true,
+    sendAnnouncements: false,
+    manageTimetables: false,
+    createAccounts: false,
+    updateSchoolProfile: false,
+    manageAcademicCalendar: false,
+    manageGradingSystem: false,
+    managePolicies: false,
+    resetPasswords: false,
+    sendBulkSMS: false,
+    sendBulkEmail: false,
+    createFeeStructures: true,
+    recordPayments: true,
+    verifyOnlinePayments: true,
+    generateReceipts: true,
+    issueFeeStatements: true,
+    manageInvoices: true,
+    generateFinancialReports: true,
+    recordExpenses: false,
+    manageBudgets: false
+};
+
+const validateRoles = (roles) => {
+    return Array.isArray(roles) && roles.every((role) => VALID_ADMIN_ROLES.includes(role));
+};
+
+const validatePermissions = (permissions) => {
+    if (!permissions || typeof permissions !== 'object') return false;
+    return Object.keys(permissions).every((permission) =>
+        Object.prototype.hasOwnProperty.call(DEFAULT_ADMIN_PERMISSIONS, permission) && typeof permissions[permission] === 'boolean'
+    );
+};
+
+const verifyAdminId = (req, res, adminId) => {
+    const currentAdminId = req.get('x-admin-id') || req.body.adminID || req.query.adminID || req.query.adminId;
+    if (currentAdminId && adminId && currentAdminId.toString() !== adminId.toString()) {
+        res.status(403).send({ message: 'Forbidden: access denied to admin data' });
+        return false;
+    }
+    return true;
+};
+
+// const adminRegister = async (req, res) => {
+//     try {
+//         const salt = await bcrypt.genSalt(10);
+//         const hashedPass = await bcrypt.hash(req.body.password, salt);
+
+//         const admin = new Admin({
+//             ...req.body,
+//             password: hashedPass
+//         });
+
+//         const existingAdminByEmail = await Admin.findOne({ email: req.body.email });
+//         const existingSchool = await Admin.findOne({ schoolName: req.body.schoolName });
+
+//         if (existingAdminByEmail) {
+//             res.send({ message: 'Email already exists' });
+//         }
+//         else if (existingSchool) {
+//             res.send({ message: 'School name already exists' });
+//         }
+//         else {
+//             let result = await admin.save();
+//             result.password = undefined;
+//             res.send(result);
+//         }
+//     } catch (err) {
+//         res.status(500).json(err);
+//     }
+// };
+
+// const adminLogIn = async (req, res) => {
+//     if (req.body.email && req.body.password) {
+//         let admin = await Admin.findOne({ email: req.body.email });
+//         if (admin) {
+//             const validated = await bcrypt.compare(req.body.password, admin.password);
+//             if (validated) {
+//                 admin.password = undefined;
+//                 res.send(admin);
+//             } else {
+//                 res.send({ message: "Invalid password" });
+//             }
+//         } else {
+//             res.send({ message: "User not found" });
+//         }
+//     } else {
+//         res.send({ message: "Email and password are required" });
+//     }
+// };
+
+const adminRegister = async (req, res) => {
+    const { email, schoolName, role: requestedRole, roles: requestedRoles, permissions: requestedPermissions } = req.body;
+    console.log(`[Admin Register] Attempt: school="${schoolName}" email="${email}" requestedRole="${requestedRole}" requestedRoles="${requestedRoles}"`);
+
+    try {
+        // Validate input
+        const validation = validateAdminInput(req.body);
+        if (!validation.valid) {
+            return res.status(400).json({ message: 'Validation errors', errors: validation.errors });
+        }
+
+        // Validate password strength
+        const passwordValidation = validatePassword(req.body.password);
+        if (!passwordValidation.valid) {
+            return res.status(400).json({ message: passwordValidation.error });
+        }
+
+        // Check if MongoDB is connected
+        const mongoose = require('mongoose');
+        const isMongoConnected = mongoose.connection.readyState === 1;
+
+        let existingAdminByEmail, existingSchool;
+
+        if (!isMongoConnected) {
+            console.log('[Admin Register] MongoDB disconnected, using in-memory DB');
+            const { findAdmin, testDB } = require('../testdb');
+            existingAdminByEmail = findAdmin(email);
+            existingSchool = testDB.admins.find(a => a.schoolName === schoolName);
+        } else {
+            existingAdminByEmail = await Admin.findOne({ email });
+            existingSchool = await Admin.findOne({ schoolName });
+        }
+
+        if (existingAdminByEmail) {
+            console.error(`[Admin Register] Failed: email already exists -> ${email}`);
+            return res.status(400).send({ message: 'Email already exists' });
+        }
+        if (existingSchool) {
+            console.error(`[Admin Register] Failed: school name already exists -> ${schoolName}`);
+            return res.status(400).send({ message: 'School name already exists' });
+        }
+
+        const salt = await bcrypt.genSalt(10);
+        const hashedPass = await bcrypt.hash(req.body.password, salt);
+
+        // First admin is always SuperAdmin
+        const isSuperAdmin = !isMongoConnected || (await Admin.countDocuments()) === 0;
+
+        const adminData = {
+            ...req.body,
+            password: hashedPass,
+            role: isSuperAdmin ? 'SuperAdmin' : 'Admin',
+            roles: isSuperAdmin ? ['SuperAdmin', 'Admin'] : ['Admin'],
+            permissions: requestedPermissions && validatePermissions(requestedPermissions)
+                ? { ...DEFAULT_ADMIN_PERMISSIONS, ...requestedPermissions }
+                : { ...DEFAULT_ADMIN_PERMISSIONS },
+            approved: isSuperAdmin,
+            approvedAt: isSuperAdmin ? new Date() : null,
+            settings: {
+                paybillCode: 'SCHOOL-PAYBILL-001',
+                schoolCurrency: 'KES',
+                assignmentsEnabled: true,
+                remindersEnabled: true,
+                backupEmail: '',
+                schoolProfile: {
+                    description: '',
+                    address: '',
+                    phone: req.body.schoolPhone || '',
+                    email: req.body.schoolEmail || ''
+                },
+                calendarEvents: [],
+                gradingSystem: {
+                    enabled: true,
+                    scaleDescription: ''
+                },
+                schoolPolicies: [],
+                erpIntegration: {
+                    enabled: false,
+                    provider: '',
+                    apiUrl: '',
+                    apiKey: '',
+                    username: '',
+                    password: ''
+                }
+            }
+        };
+
+        let result;
+
+        if (!isMongoConnected) {
+            const { addAdmin } = require('../testdb');
+            result = addAdmin(adminData);
+            result.password = undefined;
+        } else {
+            const admin = new Admin(adminData);
+            result = await admin.save();
+            result.password = undefined;
+        }
+
+        console.log(`[Admin Register] Success: school="${schoolName}" email="${email}" approved=${result.approved}`);
+
+        if (isSuperAdmin) {
+            return res.send({ 
+                message: 'Registration successful - You are now SuperAdmin', 
+                admin: result,
+                isSuperAdmin,
+                role: result.role
+            });
+        }
+
+        res.send({
+            message: 'Registration successful. Your account is pending SuperAdmin approval.',
+            pendingApproval: true,
+            role: result.role
+        });
+    } catch (err) {
+        console.error(`[Admin Register] Error: school="${schoolName}" email="${email}"`, err);
+        res.status(500).json({ message: 'Registration failed due to server error' });
+    }
+};
+
+const mongoose = require('mongoose');
+const { getAdminIdFromReq } = require('../middleware/schoolAccess.js');
+const { findAdmin } = require('../testdb');
+
+const addAccountant = async (req, res) => {
+    try {
+        // Prefer standardized helper to extract admin id from headers/body/query
+        const currentAdminId = getAdminIdFromReq(req);
+        if (!currentAdminId) {
+            return res.status(401).send({ message: 'Admin credentials required' });
+        }
+
+        // Validate ObjectId
+        if (mongoose.connection.readyState === 1 && !mongoose.Types.ObjectId.isValid(currentAdminId)) {
+            return res.status(400).send({ message: 'Invalid admin id' });
+        }
+
+        let currentAdmin;
+        if (mongoose.connection.readyState !== 1) {
+            currentAdmin = findAdmin(currentAdminId);
+        } else {
+            currentAdmin = await Admin.findById(currentAdminId);
+        }
+
+        if (!currentAdmin) {
+            return res.status(404).send({ message: 'Admin not found' });
+        }
+
+        if (!['SuperAdmin', 'Admin'].includes(currentAdmin.role)) {
+            return res.status(403).send({ message: 'Only school admins can register accountants' });
+        }
+
+        const validation = validateAdminInput(req.body);
+        if (!validation.valid) {
+            return res.status(400).json({ message: 'Validation errors', errors: validation.errors });
+        }
+
+        const { name, email, password } = req.body;
+        const existingAccount = await Admin.findOne({ email });
+        if (existingAccount) {
+            return res.status(400).send({ message: 'Email already exists' });
+        }
+
+        const salt = await bcrypt.genSalt(10);
+        const hashedPass = await bcrypt.hash(password, salt);
+
+        const accountantData = {
+            name,
+            email,
+            password: hashedPass,
+            role: 'Accountant',
+            roles: ['Accountant'],
+            approved: true,
+            approvedAt: new Date(),
+            // Associate accountant with the same school as the creating admin
+            school: currentAdmin.school || currentAdmin._id,
+            schoolName: currentAdmin.schoolName,
+            permissions: { ...DEFAULT_ACCOUNTANT_PERMISSIONS },
+            settings: {
+                ...(currentAdmin.settings || {}),
+                schoolProfile: {
+                    ...(currentAdmin.settings?.schoolProfile || {}),
+                    phone: (currentAdmin.settings?.schoolProfile?.phone) || currentAdmin.schoolPhone || '',
+                    email: (currentAdmin.settings?.schoolProfile?.email) || currentAdmin.schoolEmail || ''
+                }
+            }
+        };
+
+        let accountant;
+        if (mongoose.connection.readyState !== 1) {
+            const { addAdmin } = require('../testdb');
+            accountant = addAdmin(accountantData);
+        } else {
+            accountant = new Admin(accountantData);
+            accountant = await accountant.save();
+        }
+
+        accountant.password = undefined;
+        return res.send({ message: 'Accountant successfully registered', accountant });
+    } catch (err) {
+        console.error('[Add Accountant] Error', err);
+        return res.status(500).json({ message: 'Failed to register accountant' });
+    }
+};
+
+const getAccountants = async (req, res) => {
+    try {
+        const currentAdminId = getAdminIdFromReq(req);
+        if (!currentAdminId) {
+            return res.status(401).send({ message: 'Admin credentials required' });
+        }
+
+        let currentAdmin;
+        if (mongoose.connection.readyState !== 1) {
+            currentAdmin = findAdmin(currentAdminId);
+        } else {
+            currentAdmin = await Admin.findById(currentAdminId);
+        }
+
+        if (!currentAdmin) {
+            return res.status(404).send({ message: 'Admin not found' });
+        }
+
+        const schoolIdentifier = currentAdmin.school || currentAdmin._id;
+        const accountants = await Admin.find({ role: 'Accountant', $or: [{ school: schoolIdentifier }, { schoolName: currentAdmin.schoolName }] }).select('-password');
+        return res.send(accountants);
+    } catch (err) {
+        console.error('[Get Accountants] Error', err);
+        return res.status(500).json({ message: 'Failed to load accountants' });
+    }
+};
+
+const adminLogIn = async (req, res) => {
+    try {
+        if (!req.body.email || !req.body.password) {
+            return res.status(400).send({ message: 'Email and password are required' });
+        }
+
+        // Fallback to in-memory DB if mongoose not connected
+        if (mongoose.connection.readyState !== 1) {
+            const admin = findAdmin(req.body.email);
+            if (!admin) return res.status(404).send({ message: 'User not found' });
+            const validated = await bcrypt.compare(req.body.password, admin.password);
+            if (!validated) return res.status(401).send({ message: 'Invalid password' });
+            const safe = { ...admin };
+            delete safe.password;
+            return res.send(safe);
+        }
+
+        const admin = await Admin.findOne({ email: req.body.email });
+        if (!admin) {
+            return res.status(404).send({ message: 'User not found' });
+        }
+
+        const validated = await bcrypt.compare(req.body.password, admin.password);
+        if (!validated) {
+            return res.status(401).send({ message: 'Invalid password' });
+        }
+
+        if (admin.approved === false) {
+            return res.status(403).send({ message: 'Account pending SuperAdmin approval' });
+        }
+
+        if ((admin.role === 'Admin' || admin.role === 'Accountant') && !admin.school) {
+            if (admin.role === 'Admin') {
+                admin.school = admin._id;
+            } else if (admin.role === 'Accountant' && admin.schoolName) {
+                const schoolAdmin = await Admin.findOne({ schoolName: admin.schoolName, role: { $in: ['Admin', 'SuperAdmin'] } }).select('_id');
+                if (schoolAdmin) {
+                    admin.school = schoolAdmin._id;
+                }
+            }
+        }
+
+        admin.password = undefined;
+        res.send(admin);
+    } catch (err) {
+        res.status(500).json(err);
+    }
+};
+
+const getAdminDetail = async (req, res) => {
+    try {
+        if (!verifyAdminId(req, res, req.params.id)) return;
+        const admin = await Admin.findById(req.params.id);
+        if (!admin) {
+            return res.status(404).send({ message: 'No admin found' });
+        }
+        admin.password = undefined;
+        res.send(admin);
+    } catch (err) {
+        res.status(500).json(err);
+    }
+};
+
+const getPendingAdmins = async (req, res) => {
+    try {
+        const pendingAdmins = await Admin.find({ approved: false, rejectedAt: null }).select('-password');
+        res.send(pendingAdmins);
+    } catch (err) {
+        res.status(500).json(err);
+    }
+};
+
+const approveAdmin = async (req, res) => {
+    try {
+        const approverRole = req.body.approverRole;
+        const approverId = req.body.approverId;
+        if (approverRole !== 'SuperAdmin') {
+            return res.status(403).send({ message: 'Only SuperAdmin can approve new schools' });
+        }
+
+        const admin = await Admin.findById(req.params.id);
+        if (!admin) {
+            return res.status(404).send({ message: 'Admin not found' });
+        }
+
+        admin.approved = true;
+        admin.approvedBy = approverId;
+        admin.approvedAt = new Date();
+        admin.rejectedAt = null;
+        admin.rejectedBy = null;
+        admin.rejectionReason = '';
+        await admin.save();
+
+        // Send approval email
+        const loginUrl = process.env.FRONTEND_URL || 'http://localhost:3000/AdminLogin';
+        await sendAdminApprovalEmail(admin.email, admin.schoolName, loginUrl);
+
+        admin.password = undefined;
+        res.send({ message: 'Admin approved successfully. Email notification sent.', admin });
+    } catch (err) {
+        res.status(500).json(err);
+    }
+};
+
+const declineAdmin = async (req, res) => {
+    try {
+        const approverRole = req.body.approverRole;
+        const approverId = req.body.approverId;
+        const reason = req.body.reason?.trim() || 'No reason provided';
+
+        if (approverRole !== 'SuperAdmin') {
+            return res.status(403).send({ message: 'Only SuperAdmin can decline school registrations' });
+        }
+
+        const admin = await Admin.findById(req.params.id);
+        if (!admin) {
+            return res.status(404).send({ message: 'Admin not found' });
+        }
+
+        admin.approved = false;
+        admin.rejectedAt = new Date();
+        admin.rejectedBy = approverId;
+        admin.rejectionReason = reason;
+        await admin.save();
+
+        // Send rejection email
+        await sendAdminRejectionEmail(admin.email, admin.schoolName, reason);
+
+        admin.password = undefined;
+        res.send({ message: 'Admin declined successfully. Email notification sent.', admin });
+    } catch (err) {
+        res.status(500).json(err);
+    }
+};
+
+const getAdminSummary = async (req, res) => {
+    try {
+        const approvedCount = await Admin.countDocuments({ approved: true });
+        const pendingCount = await Admin.countDocuments({ approved: false });
+        res.send({ approvedCount, pendingCount });
+    } catch (err) {
+        res.status(500).json(err);
+    }
+};
+
+const getAdminSettings = async (req, res) => {
+    try {
+        const { id } = req.params; // schoolId
+        const adminId = req.get('x-admin-id');
+        
+        if (!adminId) {
+            return res.status(401).json({ message: 'Admin ID required' });
+        }
+
+        // Verify admin belongs to the school
+        const admin = await Admin.findById(adminId);
+        if (!admin) {
+            return res.status(404).json({ message: 'Admin not found' });
+        }
+
+        if (admin.role !== 'SuperAdmin' && admin.school?.toString() !== id) {
+            return res.status(403).json({ message: 'Unauthorized to access these settings' });
+        }
+
+        const Settings = require('../models/settingsSchema');
+        let settings = await Settings.findOne({ school: id });
+
+        if (!settings) {
+            // Initialize default settings if they don't exist
+            settings = new Settings({ school: id });
+            await settings.save();
+        }
+
+        res.status(200).json({
+            message: 'Settings retrieved successfully',
+            settings
+        });
+    } catch (err) {
+        res.status(500).json({ message: 'Error retrieving settings', error: err.message });
+    }
+};
+
+const updateAdminSettings = async (req, res) => {
+    try {
+        const { id } = req.params; // schoolId
+        const adminId = req.get('x-admin-id');
+        const updates = req.body;
+
+        if (!adminId) {
+            return res.status(401).json({ message: 'Admin ID required' });
+        }
+
+        // Verify admin belongs to the school
+        const admin = await Admin.findById(adminId);
+        if (!admin) {
+            return res.status(404).json({ message: 'Admin not found' });
+        }
+
+        if (admin.role !== 'SuperAdmin' && admin.school?.toString() !== id) {
+            return res.status(403).json({ message: 'Unauthorized to update these settings' });
+        }
+
+        const Settings = require('../models/settingsSchema');
+        let settings = await Settings.findOne({ school: id });
+
+        if (!settings) {
+            settings = new Settings({ school: id });
+        }
+
+        // Update settings with the provided data
+        Object.keys(updates).forEach(key => {
+            if (key in settings) {
+                if (typeof updates[key] === 'object' && !Array.isArray(updates[key])) {
+                    settings[key] = { ...settings[key], ...updates[key] };
+                } else {
+                    settings[key] = updates[key];
+                }
+            }
+        });
+
+        settings.updatedBy = adminId;
+        settings.updatedAt = new Date();
+        await settings.save();
+
+        res.status(200).json({
+            message: 'Settings updated successfully',
+            settings
+        });
+    } catch (err) {
+        res.status(500).json({ message: 'Error updating settings', error: err.message });
+    }
+};
+
+const getSystemBackup = async (req, res) => {
+    try {
+        const schoolId = req.params.id;
+        if (!verifyAdminId(req, res, schoolId)) return;
+        const sclasses = await Sclass.find({ school: schoolId });
+        const students = await Student.find({ school: schoolId }).select('-password');
+        const teachers = await Teacher.find({ school: schoolId }).select('-password');
+        const subjects = await Subject.find({ school: schoolId });
+        const notices = await Notice.find({ school: schoolId });
+        const complaints = await Complain.find({ school: schoolId });
+
+        res.send({
+            schoolId,
+            sclasses,
+            students,
+            teachers,
+            subjects,
+            notices,
+            complaints,
+            exportedAt: new Date()
+        });
+    } catch (err) {
+        res.status(500).json(err);
+    }
+};
+
+const getRegisteredSchools = async (req, res) => {
+    try {
+        const schools = await Admin.find({ approved: true }).select('-password');
+        res.send(schools);
+    } catch (err) {
+        res.status(500).json(err);
+    }
+};
+
+const getPendingSchools = async (req, res) => {
+    try {
+        const schools = await Admin.find({ approved: false }).select('schoolName email name createdAt -password');
+        res.send(schools);
+    } catch (err) {
+        res.status(500).json(err);
+    }
+};
+
+const getAdminStats = async (req, res) => {
+    try {
+        const totalSchools = await Admin.countDocuments({ approved: true });
+        const pendingSchools = await Admin.countDocuments({ approved: false });
+        const totalAdmins = await Admin.countDocuments();
+        const totalStudents = await Student.countDocuments();
+        const totalTeachers = await Teacher.countDocuments();
+        const totalClasses = await Sclass.countDocuments();
+        const totalSubjects = await Subject.countDocuments();
+
+        res.send({
+            totalSchools,
+            pendingSchools,
+            totalAdmins,
+            totalStudents,
+            totalTeachers,
+            totalClasses,
+            totalSubjects
+        });
+    } catch (err) {
+        res.status(500).json(err);
+    }
+};
+
+const updateAdminRole = async (req, res) => {
+    try {
+        const approverRole = req.body.approverRole;
+        const approverId = req.body.approverId;
+        const targetId = req.params.id;
+
+        // Only SuperAdmin or the admin themselves can change roles/permissions
+        if (approverRole !== 'SuperAdmin' && approverId !== targetId) {
+            return res.status(403).send({ message: 'Only SuperAdmin or the admin themselves can update roles' });
+        }
+
+        const { roles, permissions } = req.body;
+        const update = {};
+
+        if (roles) {
+            if (!validateRoles(roles)) {
+                return res.status(400).send({ message: 'Invalid role values provided' });
+            }
+            update.roles = roles;
+            if (roles.includes('SuperAdmin')) {
+                update.role = 'SuperAdmin';
+            } else if (roles.includes('Admin')) {
+                update.role = 'Admin';
+            }
+        }
+
+        if (permissions) {
+            if (!validatePermissions(permissions)) {
+                return res.status(400).send({ message: 'Invalid permissions payload' });
+            }
+            update.permissions = { ...DEFAULT_ADMIN_PERMISSIONS, ...permissions };
+        }
+
+        if (Object.keys(update).length === 0) {
+            return res.status(400).send({ message: 'No role or permission updates provided' });
+        }
+
+        const admin = await Admin.findByIdAndUpdate(targetId, { $set: update }, { new: true }).select('-password');
+        if (!admin) return res.status(404).send({ message: 'Admin not found' });
+
+        res.send({ message: 'Admin roles/permissions updated', admin });
+    } catch (err) {
+        res.status(500).json(err);
+    }
+};
+
+const requestAdminPasswordReset = async (req, res) => {
+    try {
+        const { email } = req.body;
+
+        if (!email) {
+            return res.status(400).send({ message: 'Email is required' });
+        }
+
+        const admin = await Admin.findOne({ email });
+        if (!admin) {
+            return res.status(404).send({ message: 'Admin not found' });
+        }
+
+        const token = crypto.randomBytes(32).toString('hex');
+        admin.resetPasswordToken = token;
+        admin.resetPasswordExpires = Date.now() + 3600000; // 1 hour
+        await admin.save();
+
+        const rolePath = admin.role === 'SuperAdmin' ? 'SuperAdmin' : 'Admin';
+        const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/${rolePath}/reset-password/${token}`;
+        const emailResult = await sendResetPasswordLink(admin.email, admin.name, resetUrl);
+
+        res.send({ message: 'Password reset link sent to your email', emailResult });
+    } catch (error) {
+        res.status(500).json(error);
+    }
+};
+
+const resetAdminPassword = async (req, res) => {
+    try {
+        const { token } = req.params;
+        const { password } = req.body;
+
+        if (!password) {
+            return res.status(400).send({ message: 'New password is required' });
+        }
+
+        const admin = await Admin.findOne({
+            resetPasswordToken: token,
+            resetPasswordExpires: { $gt: Date.now() }
+        });
+
+        if (!admin) {
+            return res.status(400).send({ message: 'Invalid or expired token' });
+        }
+
+        const salt = await bcrypt.genSalt(10);
+        admin.password = await bcrypt.hash(password, salt);
+        admin.resetPasswordToken = '';
+        admin.resetPasswordExpires = null;
+        await admin.save();
+
+        res.send({ message: 'Password reset successfully' });
+    } catch (error) {
+        res.status(500).json(error);
+    }
+};
+
+module.exports = { adminRegister, adminLogIn, addAccountant, getAccountants, getAdminDetail, getPendingAdmins, approveAdmin, declineAdmin, getAdminSummary, getAdminSettings, updateAdminSettings, getSystemBackup, getRegisteredSchools, getPendingSchools, getAdminStats, updateAdminRole, requestAdminPasswordReset, resetAdminPassword };
