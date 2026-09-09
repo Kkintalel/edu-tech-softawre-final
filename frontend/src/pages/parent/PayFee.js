@@ -80,11 +80,6 @@ const PayFee = () => {
             return;
         }
 
-        if (Number(amount) > student.balance) {
-            setError(`Payment amount cannot exceed outstanding balance of KES ${student.balance}`);
-            return;
-        }
-
         if (!phoneNumber || phoneNumber.length < 9) {
             setError('Please enter a valid phone number');
             return;
@@ -195,11 +190,6 @@ const PayFee = () => {
 
         if (!amount || Number(amount) <= 0) {
             setError('Please enter a valid payment amount');
-            return;
-        }
-
-        if (Number(amount) > student.balance) {
-            setError(`Payment amount cannot exceed outstanding balance of KES ${student.balance}`);
             return;
         }
 

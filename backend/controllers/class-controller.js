@@ -94,10 +94,12 @@ const promoteSclassStudents = async (req, res) => {
     try {
         const sourceClassId = req.params.id;
         const targetClassId = req.body.targetClassId;
+        const completedTerms = Number(req.body.completedTerms);
         const moveSubjects = !!req.body.moveSubjects;
         const updateRollNumbers = !!req.body.updateRollNumbers;
 
         if (!targetClassId) return res.status(400).send({ message: 'targetClassId is required in body' });
+        if (completedTerms !== 3) return res.status(400).send({ message: 'Students can only be promoted after all 3 terms are completed' });
         if (sourceClassId === targetClassId) return res.status(400).send({ message: 'Target class must be different from source class' });
 
         const sourceClass = await Sclass.findById(sourceClassId);
@@ -147,13 +149,26 @@ const promoteSclassStudents = async (req, res) => {
 
             const baseUpdate = {
                 sclassName: targetClassId,
+                attendance: [],
+                examResult: [],
+                feePeriodKey: `promotion-${targetClassId}-${Date.now()}`,
+                amountPaid: 0,
             };
-            if (!moveSubjects) {
-                baseUpdate.attendance = [];
-                baseUpdate.examResult = [];
-                resultSummary.clearedAttendance = studentsToMove.reduce((count, stu) => count + (Array.isArray(stu.attendance) && stu.attendance.length ? 1 : 0), 0);
-                resultSummary.clearedExamResults = studentsToMove.reduce((count, stu) => count + (Array.isArray(stu.examResult) && stu.examResult.length ? 1 : 0), 0);
-            }
+            const previousPeriodKey = `promotion-source-${sourceClassId}-${Date.now()}`;
+            baseUpdate.carriedForwardBalance = 0;
+            studentsToMove.forEach((student) => {
+                const previousBalance = Math.max(Number(student.balance || 0), 0);
+                student.paymentHistory.forEach((payment) => {
+                    if (!payment.feePeriodKey || payment.feePeriodKey === 'initial') payment.feePeriodKey = previousPeriodKey;
+                });
+                student.feePeriodKey = baseUpdate.feePeriodKey;
+                student.carriedForwardBalance = previousBalance;
+                student.amountPaid = 0;
+                student.totalFees = 0;
+                student.balance = previousBalance;
+            });
+            resultSummary.clearedAttendance = studentsToMove.reduce((count, stu) => count + (Array.isArray(stu.attendance) && stu.attendance.length ? 1 : 0), 0);
+            resultSummary.clearedExamResults = studentsToMove.reduce((count, stu) => count + (Array.isArray(stu.examResult) && stu.examResult.length ? 1 : 0), 0);
 
             if (updateRollNumbers) {
                 const maxRoll = targetClassStudents.reduce((max, stu) => Math.max(max, Number(stu.rollNum || 0)), 0);
@@ -168,11 +183,36 @@ const promoteSclassStudents = async (req, res) => {
                     };
                 });
 
+                studentsToMove.forEach((student, index) => {
+                    bulkOps[index].updateOne.update.$set = {
+                        ...bulkOps[index].updateOne.update.$set,
+                        feePeriodKey: student.feePeriodKey,
+                        carriedForwardBalance: student.carriedForwardBalance,
+                        amountPaid: student.amountPaid,
+                        totalFees: student.totalFees,
+                        balance: student.balance,
+                        paymentHistory: student.paymentHistory,
+                    };
+                });
                 const bulkResult = await Student.bulkWrite(bulkOps, { session });
                 resultSummary.studentsMatched = bulkResult.nMatched || bulkResult.matchedCount || studentsToMove.length;
                 resultSummary.studentsModified = bulkResult.nModified || bulkResult.modifiedCount || studentsToMove.length;
             } else {
-                const upd = await Student.updateMany({ sclassName: sourceClassId }, { $set: baseUpdate }).session(session);
+                const bulkOps = studentsToMove.map((student) => ({
+                    updateOne: {
+                        filter: { _id: student._id },
+                        update: { $set: {
+                            ...baseUpdate,
+                            feePeriodKey: student.feePeriodKey,
+                            carriedForwardBalance: student.carriedForwardBalance,
+                            amountPaid: student.amountPaid,
+                            totalFees: student.totalFees,
+                            balance: student.balance,
+                            paymentHistory: student.paymentHistory,
+                        } }
+                    }
+                }));
+                const upd = await Student.bulkWrite(bulkOps, { session });
                 resultSummary.studentsMatched = upd.matchedCount || upd.n || 0;
                 resultSummary.studentsModified = upd.modifiedCount || upd.nModified || 0;
             }

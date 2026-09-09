@@ -56,7 +56,7 @@ const { subjectCreate, classSubjects, deleteSubjectsByClass, getSubjectDetail, d
 const { teacherRegister, teacherLogIn, getTeachers, getTeacherDetail, deleteTeachers, deleteTeachersByClass, deleteTeacher, updateTeacher, updateTeacherSubject, updateTeacherRole, teacherAttendance, requestTeacherPasswordReset, resetTeacherPassword, resetTeacherPasswordByAdmin, payTeacherSalary, approveSalaryPayment, rejectSalaryPayment, searchTeacher } = require('../controllers/teacher-controller.js');
 const { payrollExport } = require('../controllers/teacher-controller.js');
 const { createAssignment, getAssignmentsBySchool, getAssignmentsByClass, getAssignmentDetail, submitAssignment, getAssignmentSubmissions, searchAssignments } = require('../controllers/assignment-controller.js');
-const { sendMessage, getInbox, getUnreadCount, markAsRead, addResponse, resolveCommunication, broadcastNotification, getCommunicationStats } = require('../controllers/hrAccountantCommunication-controller.js');const { submitExpenseClaim, getExpenseClaims, updateExpenseClaimStatus } = require('../controllers/expense-controller.js');const { createLearningMaterial, getLearningMaterialsByClass, getLearningMaterialsBySchool, createLiveClass, getLiveClassesByClass, createQuiz, getQuizzesByClass } = require('../controllers/learning-controller.js');
+const { sendMessage, getInbox, getUnreadCount, markAsRead, addResponse, resolveCommunication, broadcastNotification, getCommunicationStats } = require('../controllers/hrAccountantCommunication-controller.js');const { submitExpenseClaim, getExpenseClaims, updateExpenseClaimStatus } = require('../controllers/expense-controller.js');const { createLearningMaterial, getLearningMaterialsByClass, getLearningMaterialsBySchool, createLiveClass, getLiveClassesByClass, joinLiveClass, createQuiz, getQuizzesByClass } = require('../controllers/learning-controller.js');
 const { saveLegalAcceptance } = require('../controllers/legalAcceptance-controller.js');
 const { exportSchoolData, exportTeacherStudents, exportHrData, exportAccountantData } = require('../controllers/dataExport-controller.js');
 
@@ -273,6 +273,7 @@ router.get('/LearningMaterials/:classId', getLearningMaterialsByClass);
 router.get('/LearningMaterials/School/:schoolId', getLearningMaterialsBySchool);
 router.post('/LiveClass', createLiveClass);
 router.get('/LiveClasses/:classId', getLiveClassesByClass);
+router.post('/LiveClasses/:liveClassId/Join', joinLiveClass);
 router.post('/Quiz', createQuiz);
 router.get('/Quizzes/:classId', getQuizzesByClass);
 router.get('/Assignments/School/:schoolId', getAssignmentsBySchool);

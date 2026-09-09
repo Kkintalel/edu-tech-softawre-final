@@ -1,6 +1,7 @@
 const LearningMaterial = require('../models/learningMaterialSchema.js');
 const LiveClass = require('../models/liveClassSchema.js');
 const Quiz = require('../models/quizSchema.js');
+const Student = require('../models/studentSchema.js');
 const Teacher = require('../models/teacherSchema.js');
 const path = require('path');
 const { getAdminIdFromReq, verifySchoolId, verifyEntityBelongsToAdminSchool } = require('../middleware/schoolAccess.js');
@@ -127,6 +128,43 @@ const getLiveClassesByClass = async (req, res) => {
     }
 };
 
+const joinLiveClass = async (req, res) => {
+    try {
+        const studentId = req.body.studentId || req.get('x-user-id');
+        if (!studentId) return res.status(400).json({ message: 'Student ID is required' });
+
+        const [liveClass, student] = await Promise.all([
+            LiveClass.findById(req.params.liveClassId),
+            Student.findById(studentId),
+        ]);
+        if (!liveClass) return res.status(404).json({ message: 'Live class not found' });
+        if (!student) return res.status(404).json({ message: 'Student not found' });
+
+        const classId = liveClass.class || liveClass.class_id;
+        const schoolId = liveClass.school || liveClass.school_id;
+        const subjectId = liveClass.subject || liveClass.subject_id;
+        if (String(student.sclassName) !== String(classId) || String(student.school) !== String(schoolId)) {
+            return res.status(403).json({ message: 'Student is not enrolled in this class' });
+        }
+        if (!subjectId) return res.status(400).json({ message: 'Live class subject is missing' });
+
+        const today = new Date();
+        const alreadyMarked = student.attendance.some((record) => {
+            return String(record.subName) === String(subjectId)
+                && new Date(record.date).toDateString() === today.toDateString();
+        });
+        if (!alreadyMarked) {
+            student.attendance.push({ date: today, status: 'Present', checkInMethod: 'Online Class', subName: subjectId });
+            await student.save();
+        }
+
+        res.json({ message: 'Attendance recorded', alreadyMarked, meetingLink: liveClass.meetingLink || liveClass.meeting_url });
+    } catch (error) {
+        console.error('Live class join error:', error);
+        res.status(500).json({ message: 'Unable to record attendance', error: error.message });
+    }
+};
+
 const createQuiz = async (req, res) => {
     try {
         const { title, description, subject, classId, questions } = req.body;
@@ -177,6 +215,7 @@ module.exports = {
     getLearningMaterialsBySchool,
     createLiveClass,
     getLiveClassesByClass,
+    joinLiveClass,
     createQuiz,
     getQuizzesByClass,
 };

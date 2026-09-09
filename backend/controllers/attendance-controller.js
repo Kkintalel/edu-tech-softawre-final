@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const Attendance = require('../models/attendanceSchema');
+const Student = require('../models/studentSchema');
 const Employee = require('../models/employeeSchema');
 const School = require('../models/schoolSchema');
 const { validateAttendance } = require('../utils/validation');
@@ -327,6 +328,50 @@ const getEmployeeAttendanceStats = async (req, res) => {
     }
 };
 
+const markBiometricStudentAttendance = async (req, res) => {
+    try {
+        const { biometricId, schoolId, subjectId } = req.body;
+        if (!biometricId || !schoolId || !subjectId) return res.status(400).json({ message: 'Biometric ID, school ID, and subject ID are required for student attendance' });
+        const student = await Student.findOne({ biometricId: biometricId.trim(), school: schoolId });
+        if (!student) return res.status(404).json({ message: 'Student biometric ID not found' });
+        const today = new Date();
+        const alreadyMarked = student.attendance.some((record) => new Date(record.date).toDateString() === today.toDateString());
+        if (!alreadyMarked) {
+            student.attendance.push({ date: today, status: 'Present', checkInMethod: 'Biometric', subName: subjectId });
+            await student.save();
+        }
+        res.json({ message: 'Student biometric attendance recorded', alreadyMarked, studentId: student._id });
+    } catch (error) {
+        res.status(500).json({ message: 'Unable to record student biometric attendance', error: error.message });
+    }
+};
+
+const markBiometricStaffAttendance = async (req, res) => {
+    try {
+        const { biometricId, schoolId } = req.body;
+        if (!biometricId || !schoolId) return res.status(400).json({ message: 'Biometric ID and school ID are required' });
+        const employee = await Employee.findOne({ biometricId: biometricId.trim(), school: schoolId });
+        if (!employee) return res.status(404).json({ message: 'Staff biometric ID not found' });
+        const startOfDay = new Date();
+        startOfDay.setHours(0, 0, 0, 0);
+        const existing = await Attendance.findOne({ employeeId: employee._id, date: { $gte: startOfDay } });
+        if (existing) return res.json({ message: 'Staff biometric attendance already recorded', alreadyMarked: true, attendance: existing });
+        const attendance = await Attendance.create({
+            schoolId,
+            employeeId: employee._id,
+            employeeName: `${employee.firstName} ${employee.lastName}`,
+            department: employee.department,
+            date: new Date(),
+            checkInTime: new Date(),
+            checkInMethod: 'Biometric',
+            status: 'Present',
+        });
+        res.json({ message: 'Staff biometric attendance recorded', alreadyMarked: false, attendance });
+    } catch (error) {
+        res.status(500).json({ message: 'Unable to record staff biometric attendance', error: error.message });
+    }
+};
+
 module.exports = {
     markAttendance,
     getAttendance,
@@ -334,4 +379,6 @@ module.exports = {
     deleteAttendance,
     getAttendanceSummary,
     getEmployeeAttendanceStats,
+    markBiometricStudentAttendance,
+    markBiometricStaffAttendance,
 };

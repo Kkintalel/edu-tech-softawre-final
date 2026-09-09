@@ -50,11 +50,12 @@ const StudentAttendance = ({ situation }) => {
 
         if (situation === "Subject" && params.subjectID) {
             setChosenSubName(params.subjectID);
+            setSubjectName("");
         }
     }, [dispatch, requestedStudentId, isCurrentStudentLoaded, params, situation]);
 
     useEffect(() => {
-        if (classId && (situation === "Student" || situation === "Subject") && (!Array.isArray(subjectsList) || subjectsList.length === 0)) {
+        if (classId && (situation === "Student" || situation === "Subject")) {
             dispatch(getSubjectList(classId, "ClassSubjects"));
         }
     }, [dispatch, classId, situation]);
@@ -62,6 +63,7 @@ const StudentAttendance = ({ situation }) => {
     useEffect(() => {
         if (situation === "Subject" && params.subjectID) {
             setChosenSubName(params.subjectID);
+            setSubjectName("");
         }
     }, [params.subjectID, situation]);
 
@@ -108,6 +110,11 @@ const StudentAttendance = ({ situation }) => {
             setShowPopup(true)
             return
         }
+        if (!date) {
+            setMessage("Please select an attendance date")
+            setShowPopup(true)
+            return
+        }
         
         setLoader(true)
         const fieldsToSubmit = { 
@@ -138,7 +145,7 @@ const StudentAttendance = ({ situation }) => {
                 setMessage(response);
             } else if (error) {
                 setShowPopup(true);
-                setMessage("Attendance submission failed. Please try again.");
+                setMessage(typeof error === 'string' ? error : "Attendance submission failed. Please try again.");
             } else if (statestatus === "added") {
                 setShowPopup(true);
                 setMessage("Done Successfully");

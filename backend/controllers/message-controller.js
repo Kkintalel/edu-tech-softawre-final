@@ -383,8 +383,13 @@ const sendBulkMessageToStudents = async (req, res) => {
             // Send SMS if required
             if ((messageType === 'SMS' || messageType === 'Both') && recipient.phone) {
                 try {
-                    await sendSMS(recipient.phone, messageBody);
-                    sentCount++;
+                    const smsResult = await sendSMS(recipient.phone, messageBody);
+                    if (smsResult?.success) {
+                        sentCount++;
+                    } else {
+                        failedCount++;
+                        console.error(`Error sending SMS to ${recipient.phone}:`, smsResult?.error || 'SMS provider failed');
+                    }
                 } catch (smsErr) {
                     failedCount++;
                     console.error(`Error sending SMS to ${recipient.phone}:`, smsErr.message);
@@ -494,8 +499,13 @@ const sendBulkMessageToParents = async (req, res) => {
             // Send SMS if required
             if ((messageType === 'SMS' || messageType === 'Both') && recipient.phone) {
                 try {
-                    await sendSMS(recipient.phone, messageBody);
-                    sentCount++;
+                    const smsResult = await sendSMS(recipient.phone, messageBody);
+                    if (smsResult?.success) {
+                        sentCount++;
+                    } else {
+                        failedCount++;
+                        console.error(`Error sending SMS to ${recipient.phone}:`, smsResult?.error || 'SMS provider failed');
+                    }
                 } catch (smsErr) {
                     failedCount++;
                     console.error(`Error sending SMS to ${recipient.phone}:`, smsErr.message);

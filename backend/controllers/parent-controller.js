@@ -191,11 +191,12 @@ const parentPayFee = async (req, res) => {
         });
 
         const history = Array.isArray(student.paymentHistory) ? student.paymentHistory : [];
-        const completedPayments = history.filter(p => ['Completed', 'Verified'].includes(p.status));
+        const currentPeriod = student.feePeriodKey || 'initial';
+        const completedPayments = history.filter(p => p.feePeriodKey === currentPeriod && ['Completed', 'Verified'].includes(p.status));
         const computedAmountPaid = completedPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
         student.amountPaid = computedAmountPaid;
         const totalFeesValue = Number(student.totalFees) || 0;
-        student.balance = Math.max(totalFeesValue - computedAmountPaid, 0);
+        student.balance = totalFeesValue - computedAmountPaid;
         student.paymentStatus = completedPayments.length > 0 ? 'Completed' : (history.some(p => p.status === 'Pending') ? 'Pending' : 'Pending');
 
         if (history.length > 0) {
@@ -294,12 +295,6 @@ const initiateStk = async (req, res) => {
             return res.status(403).send({ message: 'Unauthorized payment attempt' });
         }
 
-        // Check if amount doesn't exceed balance
-        if (Number(amount) > student.balance) {
-            return res.status(400).send({ message: `Payment amount cannot exceed outstanding balance of KES ${student.balance}` });
-        }
-
-
         const schoolSettings = await Settings.findOne({ school: student.school }).select('mpesaSettings');
         const mpesaSettings = schoolSettings?.mpesaSettings;
         if (mpesaSettings?.enabled && (!mpesaSettings.consumerKey || !mpesaSettings.consumerSecret || !mpesaSettings.businessShortCode || !mpesaSettings.passkey)) {
@@ -372,10 +367,6 @@ const mockInitiateStk = async (req, res) => {
             return res.status(403).send({ message: 'Unauthorized payment attempt' });
         }
 
-        if (Number(amount) > student.balance) {
-            return res.status(400).send({ message: `Payment amount cannot exceed outstanding balance of KES ${student.balance}` });
-        }
-
         const checkoutRequestId = `MOCK_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
         const receiptNumber = `MOCK-STK-${student.admissionNo || student.rollNum}-${Date.now()}`;
 
@@ -442,13 +433,14 @@ const checkStkStatus = async (req, res) => {
             const paymentRecord = student.paymentHistory[paymentIndex];
             paymentRecord.status = 'Completed';
 
-            const completedPayments = (student.paymentHistory || []).filter(p => ['Completed', 'Verified'].includes(p.status));
+            const currentPeriod = student.feePeriodKey || 'initial';
+            const completedPayments = (student.paymentHistory || []).filter(p => p.feePeriodKey === currentPeriod && ['Completed', 'Verified'].includes(p.status));
             const computedAmountPaid = completedPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
             student.amountPaid = computedAmountPaid;
             
             // Ensure totalFees is a number
             const totalFeesValue = Number(student.totalFees) || 0;
-            student.balance = Math.max(totalFeesValue - computedAmountPaid, 0);
+            student.balance = totalFeesValue - computedAmountPaid;
             student.paymentStatus = 'Completed';
 
             paymentRecord.balanceAfter = student.balance;
@@ -517,11 +509,12 @@ const mpesaCallback = async (req, res) => {
                 const paymentRecord = student.paymentHistory[paymentIndex];
                 paymentRecord.status = 'Completed';
 
-                const completedPayments = (student.paymentHistory || []).filter(p => ['Completed', 'Verified'].includes(p.status));
+                const currentPeriod = student.feePeriodKey || 'initial';
+                const completedPayments = (student.paymentHistory || []).filter(p => p.feePeriodKey === currentPeriod && ['Completed', 'Verified'].includes(p.status));
                 const computedAmountPaid = completedPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
                 student.amountPaid = computedAmountPaid;
                 const totalFeesValue = Number(student.totalFees) || 0;
-                student.balance = Math.max(totalFeesValue - computedAmountPaid, 0);
+                student.balance = totalFeesValue - computedAmountPaid;
                 student.paymentStatus = 'Completed';
 
                 paymentRecord.balanceAfter = student.balance;
@@ -583,13 +576,14 @@ const mpesaCallback = async (req, res) => {
             const paymentRecord = student.paymentHistory[paymentIndex];
             paymentRecord.status = 'Completed';
 
-            const completedPayments = (student.paymentHistory || []).filter(p => ['Completed', 'Verified'].includes(p.status));
+            const currentPeriod = student.feePeriodKey || 'initial';
+            const completedPayments = (student.paymentHistory || []).filter(p => p.feePeriodKey === currentPeriod && ['Completed', 'Verified'].includes(p.status));
             const computedAmountPaid = completedPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
             student.amountPaid = computedAmountPaid;
             
             // Ensure totalFees is a number
             const totalFeesValue = Number(student.totalFees) || 0;
-            student.balance = Math.max(totalFeesValue - computedAmountPaid, 0);
+            student.balance = totalFeesValue - computedAmountPaid;
             student.paymentStatus = 'Completed';
 
             paymentRecord.balanceAfter = student.balance;

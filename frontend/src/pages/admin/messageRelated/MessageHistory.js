@@ -66,7 +66,7 @@ const MessageHistory = () => {
         `${REACT_APP_BASE_URL}/Message/Stats/Overview`,
         { headers: { 'x-admin-id': currentUser._id } }
       );
-      setStats(response.data.data);
+      setStats(response.data?.data || {});
     } catch (err) {
       console.error('Error fetching stats:', err);
     }
@@ -149,7 +149,7 @@ const MessageHistory = () => {
                 <Typography color="textSecondary" gutterBottom>
                   Total Sent
                 </Typography>
-                <Typography variant="h5">{stats.totalSent || 0}</Typography>
+                <Typography variant="h5">{stats.sentMessages || 0}</Typography>
               </CardContent>
             </Card>
           </Grid>
@@ -157,9 +157,9 @@ const MessageHistory = () => {
             <Card>
               <CardContent>
                 <Typography color="textSecondary" gutterBottom>
-                  Email Sent
+                  Emails Sent
                 </Typography>
-                <Typography variant="h5">{stats.emailSent || 0}</Typography>
+                <Typography variant="h5">{stats.emailsSent || 0}</Typography>
               </CardContent>
             </Card>
           </Grid>
@@ -180,7 +180,7 @@ const MessageHistory = () => {
                   Failed
                 </Typography>
                 <Typography variant="h5" color="error">
-                  {stats.failedCount || 0}
+                  {stats.failedMessages || 0}
                 </Typography>
               </CardContent>
             </Card>

@@ -21,7 +21,13 @@ dotenv.config();
 
 app.use(express.json({ limit: '10mb' }))
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
-const ALLOWED_ORIGINS = [FRONTEND_URL, 'http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:3001', 'http://127.0.0.1:3001'].filter(Boolean);
+const ALLOWED_ORIGINS = [
+    ...FRONTEND_URL.split(',').map((origin) => origin.trim()),
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'http://localhost:3001',
+    'http://127.0.0.1:3001',
+].filter(Boolean);
 app.use(cors({
     origin: (origin, callback) => {
         if (!origin || ALLOWED_ORIGINS.includes(origin)) {

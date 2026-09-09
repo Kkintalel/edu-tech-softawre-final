@@ -99,6 +99,12 @@ const SideBar = () => {
                     </ListItemIcon>
                     <ListItemText primary="Settings" />
                 </ListItemButton>
+                <ListItemButton component={Link} to="/Admin/settings-categories/attendance-settings">
+                    <ListItemIcon>
+                        <EventAvailableIcon color={location.pathname.startsWith('/Admin/settings-categories/attendance-settings') ? 'primary' : 'inherit'} />
+                    </ListItemIcon>
+                    <ListItemText primary="Biometric Attendance" />
+                </ListItemButton>
                 <ListItemButton component={Link} to="/Admin/complains">
                     <ListItemIcon>
                         <ReportIcon color={location.pathname.startsWith("/Admin/complains") ? 'primary' : 'inherit'} />

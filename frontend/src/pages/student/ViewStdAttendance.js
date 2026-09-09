@@ -106,6 +106,7 @@ const ViewStdAttendance = () => {
                                                         <StyledTableRow>
                                                             <StyledTableCell>Date</StyledTableCell>
                                                             <StyledTableCell align="right">Status</StyledTableCell>
+                                                            <StyledTableCell align="right">Method</StyledTableCell>
                                                         </StyledTableRow>
                                                     </TableHead>
                                                     <TableBody>
@@ -118,6 +119,7 @@ const ViewStdAttendance = () => {
                                                                         {dateString}
                                                                     </StyledTableCell>
                                                                     <StyledTableCell align="right">{data.status}</StyledTableCell>
+                                                                    <StyledTableCell align="right">{data.checkInMethod || 'Manual'}</StyledTableCell>
                                                                 </StyledTableRow>
                                                             )
                                                         })}

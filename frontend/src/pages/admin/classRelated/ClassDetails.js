@@ -177,6 +177,7 @@ const ClassDetails = () => {
     const [message, setMessage] = useState("");
     const [promoteOpen, setPromoteOpen] = useState(false);
     const [promoteTarget, setPromoteTarget] = useState('');
+    const [promoteCompletedTerms, setPromoteCompletedTerms] = useState(0);
     const [promoteMoveSubjects, setPromoteMoveSubjects] = useState(false);
     const [promoteUpdateRolls, setPromoteUpdateRolls] = useState(false);
     const [promoteLoading, setPromoteLoading] = useState(false);
@@ -197,6 +198,7 @@ const ClassDetails = () => {
 
     const openPromoteDialog = () => {
         setPromoteTarget('');
+        setPromoteCompletedTerms(0);
         setPromoteMoveSubjects(false);
         setPromoteUpdateRolls(false);
         setPromoteError('');
@@ -209,12 +211,16 @@ const ClassDetails = () => {
             setPromoteError('Please select a target class');
             return;
         }
+        if (promoteCompletedTerms !== 3) {
+            setPromoteError('Promotion is allowed only after all 3 terms are completed');
+            return;
+        }
         setPromoteLoading(true);
         setPromoteError('');
         try {
             const stateUser = currentUser;
             const adminId = stateUser?._id || (stateUser && stateUser.id);
-            await dispatch(promoteClassStudents(classID, promoteTarget, { moveSubjects: promoteMoveSubjects, updateRollNumbers: promoteUpdateRolls, adminId }));
+            await dispatch(promoteClassStudents(classID, promoteTarget, { moveSubjects: promoteMoveSubjects, updateRollNumbers: promoteUpdateRolls, completedTerms: promoteCompletedTerms, adminId }));
             setPromoteOpen(false);
             dispatch(getClassStudents(classID));
             dispatch(getSubjectList(classID, "ClassSubjects"));
@@ -246,13 +252,22 @@ const ClassDetails = () => {
                             ))}
                         </Select>
                     </FormControl>
+                    <FormControl fullWidth sx={{ mt: 2 }}>
+                        <InputLabel id="completed-terms-label">Terms Completed</InputLabel>
+                        <Select labelId="completed-terms-label" value={promoteCompletedTerms} label="Terms Completed" onChange={(e) => setPromoteCompletedTerms(Number(e.target.value))}>
+                            <MenuItem value={0}>0 terms</MenuItem>
+                            <MenuItem value={1}>1 term</MenuItem>
+                            <MenuItem value={2}>2 terms</MenuItem>
+                            <MenuItem value={3}>3 terms - eligible for promotion</MenuItem>
+                        </Select>
+                    </FormControl>
                     <FormControlLabel control={<Checkbox checked={promoteMoveSubjects} onChange={(e) => setPromoteMoveSubjects(e.target.checked)} />} label="Also move subjects to target class" />
                     <FormControlLabel control={<Checkbox checked={promoteUpdateRolls} onChange={(e) => setPromoteUpdateRolls(e.target.checked)} />} label="Update roll numbers in target class" />
                     {availableTargets.length === 0 && <Alert severity="info" sx={{ mt: 2 }}>No other classes are available to promote this class into.</Alert>}
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setPromoteOpen(false)}>Cancel</Button>
-                    <GreenButton disabled={promoteLoading || !promoteTarget || availableTargets.length === 0} onClick={handlePromote}>
+                    <GreenButton disabled={promoteLoading || !promoteTarget || promoteCompletedTerms !== 3 || availableTargets.length === 0} onClick={handlePromote}>
                         {promoteLoading ? 'Processing...' : 'Confirm Promote'}
                     </GreenButton>
                 </DialogActions>

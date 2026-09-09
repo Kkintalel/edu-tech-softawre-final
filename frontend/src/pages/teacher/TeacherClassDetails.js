@@ -15,8 +15,8 @@ const TeacherClassDetails = () => {
     const { sclassStudents, loading, error, getresponse } = useSelector((state) => state.sclass);
 
     const { currentUser } = useSelector((state) => state.user);
-    const classID = currentUser.teachSclass?._id
-    const subjectID = currentUser.teachSubject?._id
+    const classID = currentUser.teachSclass?._id || currentUser.teachSclass
+    const subjectID = currentUser.teachSubject?._id || currentUser.teachSubject
     const { studentsList } = useSelector((state) => state.student);
 
     const [searchQuery, setSearchQuery] = React.useState('');
@@ -80,9 +80,17 @@ const TeacherClassDetails = () => {
         };
 
         const handleAttendance = () => {
+            if (!subjectID) {
+                setLoadError('Subject information is not available. Please ensure you are assigned to a subject.');
+                return;
+            }
             navigate(`/Teacher/class/student/attendance/${row.id}/${subjectID}`)
         }
         const handleMarks = () => {
+            if (!subjectID) {
+                setLoadError('Subject information is not available. Please ensure you are assigned to a subject.');
+                return;
+            }
             navigate(`/Teacher/class/student/marks/${row.id}/${subjectID}`)
         };
 

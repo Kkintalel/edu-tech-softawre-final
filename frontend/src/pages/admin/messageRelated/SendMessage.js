@@ -25,7 +25,9 @@ import Popup from '../../../components/Popup';
 const SendMessage = () => {
   const navigate = useNavigate();
   const { currentUser } = useSelector((state) => state.user);
-  const adminId = currentUser?._id || currentUser?.school?._id || currentUser?.school;
+  const senderId = currentUser?._id || currentUser?.id;
+  const schoolValue = currentUser?.school?._id || currentUser?.school?.id || currentUser?.school || currentUser?.schoolId;
+  const schoolId = schoolValue ? String(schoolValue) : senderId;
   const [loader, setLoader] = useState(false);
   const [showPopup, setShowPopup] = useState(false);
   const [message, setMessage] = useState('');
@@ -44,7 +46,7 @@ const SendMessage = () => {
   const [selectedClass, setSelectedClass] = useState('');
   const [classes, setClasses] = useState([]);
 
-  const REACT_APP_BASE_URL = process.env.REACT_APP_BASE_URL;
+  const REACT_APP_BASE_URL = process.env.REACT_APP_BASE_URL || 'http://localhost:5000';
 
   // Fetch recipients based on the selected recipient type
   useEffect(() => {
@@ -53,9 +55,9 @@ const SendMessage = () => {
         let endpoint = '';
 
         if (recipientType === 'Student') {
-          endpoint = `${REACT_APP_BASE_URL}/Admin/StudentList/${adminId}`;
+          endpoint = `${REACT_APP_BASE_URL}/Admin/StudentList/${schoolId}`;
         } else if (recipientType === 'Parent') {
-          endpoint = `${REACT_APP_BASE_URL}/Admin/ParentList/${adminId}`;
+          endpoint = `${REACT_APP_BASE_URL}/Admin/ParentList/${schoolId}`;
         } else if (recipientType === 'Accountant') {
           endpoint = `${REACT_APP_BASE_URL}/Admin/Accountants`;
         } else if (recipientType === 'HR') {
@@ -63,7 +65,7 @@ const SendMessage = () => {
         }
 
         const response = await axios.get(endpoint, {
-          headers: { 'x-admin-id': adminId },
+          headers: { 'x-admin-id': senderId },
         });
 
         if (response.data.students) {
@@ -84,7 +86,7 @@ const SendMessage = () => {
     if (!useClass) {
       fetchRecipients();
     }
-  }, [recipientType, useClass, currentUser, REACT_APP_BASE_URL, adminId]);
+  }, [recipientType, useClass, currentUser, REACT_APP_BASE_URL, senderId, schoolId]);
 
   // Fetch classes for bulk messaging
   useEffect(() => {
@@ -92,20 +94,24 @@ const SendMessage = () => {
       try {
         // backend route is /SclassList/:id and returns an array
         const response = await axios.get(
-          `${REACT_APP_BASE_URL}/SclassList/${adminId}`,
-          { headers: { 'x-admin-id': adminId } }
+          `${REACT_APP_BASE_URL}/SclassList/${schoolId}`,
+          { headers: { 'x-admin-id': senderId } }
         );
         // accept either { classes: [...] } or direct array
         setClasses(response.data.classes || response.data || []);
       } catch (err) {
         console.error('Error fetching classes:', err);
+        setClasses([]);
+        setMessage(err.response?.data?.message || 'Unable to load classes. Please refresh and try again.');
+        setAlertType('error');
+        setShowPopup(true);
       }
     };
 
     if (useClass) {
       fetchClasses();
     }
-  }, [useClass, currentUser, REACT_APP_BASE_URL, adminId]);
+  }, [useClass, currentUser, REACT_APP_BASE_URL, senderId, schoolId]);
 
   const handleRecipientToggle = (id) => {
     setSelectedRecipients((prev) =>
@@ -202,7 +208,7 @@ const SendMessage = () => {
                 };
 
           return axios.post(endpointUrl, data, {
-            headers: { 'x-admin-id': currentUser._id },
+            headers: { 'x-admin-id': senderId },
           });
         });
 
@@ -227,7 +233,7 @@ const SendMessage = () => {
 
       // For bulk messages
       const response = await axios.post(endpoint, payload, {
-        headers: { 'x-admin-id': currentUser._id },
+        headers: { 'x-admin-id': senderId },
       });
 
       setMessage(

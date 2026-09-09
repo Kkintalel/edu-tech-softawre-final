@@ -26,6 +26,10 @@ const API_BASE_URL = process.env.REACT_APP_BASE_URL || 'http://localhost:5000';
 
 const SalaryApprovalsPage = () => {
     const { currentUser, currentRole } = useSelector((state) => state.user);
+    const storedUser = typeof window !== 'undefined'
+        ? JSON.parse(localStorage.getItem('currentUser') || localStorage.getItem('user') || 'null')
+        : null;
+    const effectiveRole = currentRole || currentUser?.role || storedUser?.role;
     const [approvals, setApprovals] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -50,13 +54,17 @@ const SalaryApprovalsPage = () => {
                 axios.get(`${API_BASE_URL}/Employee/GetAll?school=${schoolId}`, requestConfig),
             ]);
 
-            const teacherList = Array.isArray(teachersResponse.data) ? teachersResponse.data : [];
-            const employeeList = employeesResponse.data?.employees || [];
+            const teacherList = Array.isArray(teachersResponse.data)
+                ? teachersResponse.data
+                : teachersResponse.data?.teachers || [];
+            const employeeList = Array.isArray(employeesResponse.data)
+                ? employeesResponse.data
+                : employeesResponse.data?.employees || [];
             const pending = [];
 
             teacherList.forEach((teacher) => {
                 (teacher.salaryHistory || []).forEach((payment, index) => {
-                    if (payment.approvalStatus === 'Pending' || payment.status === 'Pending') {
+                    if (['pending', 'processed'].includes(String(payment.approvalStatus || payment.status || '').toLowerCase())) {
                         pending.push({ type: 'teacher', person: teacher, payment, index });
                     }
                 });
@@ -64,7 +72,7 @@ const SalaryApprovalsPage = () => {
 
             employeeList.forEach((employee) => {
                 (employee.paymentHistory || []).forEach((payment, index) => {
-                    if (payment.approvalStatus === 'Pending' || payment.status === 'Pending') {
+                    if (['pending', 'processed'].includes(String(payment.approvalStatus || payment.status || '').toLowerCase())) {
                         pending.push({ type: 'employee', person: employee, payment, index });
                     }
                 });
@@ -136,7 +144,7 @@ const SalaryApprovalsPage = () => {
         }
     };
 
-            if (!['Admin', 'SuperAdmin'].includes(currentRole)) {
+    if (!['Admin', 'SuperAdmin'].includes(effectiveRole)) {
         return (
             <Box sx={{ p: 3 }}>
                 <Alert severity="warning">You do not have permission to approve salary payments</Alert>

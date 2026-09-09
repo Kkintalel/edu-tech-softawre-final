@@ -15,17 +15,27 @@ const StudentAssignments = () => {
       setLoading(true);
       setError(null);
 
-      if (!currentUser?.sclassName?._id) {
+      const classValue = currentUser?.sclassName;
+      const classId = typeof classValue === 'object'
+        ? classValue?._id || classValue?.id
+        : classValue;
+      const schoolValue = currentUser?.school;
+      const schoolId = typeof schoolValue === 'object'
+        ? schoolValue?._id || schoolValue?.id
+        : schoolValue || currentUser?.schoolId;
+
+      if (!classId) {
         setError('Student class not available. Cannot load assignments.');
         setLoading(false);
         return;
       }
 
       try {
-        const res = await fetch(`${API_BASE_URL}/Assignments/Class/${currentUser.sclassName._id}`);
+        const headers = schoolId ? { 'x-admin-id': schoolId } : {};
+        const res = await fetch(`${API_BASE_URL}/Assignments/Class/${classId}`, { headers });
         const data = await res.json();
         if (res.ok) {
-          setAssignments(data);
+          setAssignments(Array.isArray(data) ? data : data.assignments || []);
         } else {
           setError(data.message || 'Failed to load assignments');
         }

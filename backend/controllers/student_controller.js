@@ -5,6 +5,7 @@ const Sclass = require('../models/sclassSchema.js');
 const Parent = require('../models/parentSchema.js');
 const Subject = require('../models/subjectSchema.js');
 const Admin = require('../models/adminSchema.js');
+const Settings = require('../models/settingsSchema.js');
 const { sendFeeConfirmationToParent, sendPaymentReminderToParent, sendSMS } = require('../services/smsService.js');
 const { sendResetPasswordLink, sendEmail, sendPasswordResetEmail } = require('../services/emailService.js');
 const { logAuditAction } = require('../utils/auditLogger');
@@ -166,6 +167,17 @@ const studentRegister = async (req, res) => {
             return res.status(401).json({ message: 'Admin credentials are required for registration' });
         }
 
+        const settings = await Settings.findOne({ school: schoolId }).select('enableBiometricAttendance');
+        const biometricEnabled = Boolean(settings?.enableBiometricAttendance);
+        const biometricId = typeof req.body.biometricId === 'string' ? req.body.biometricId.trim() : '';
+
+        if (biometricId && !biometricEnabled) {
+            return res.status(400).json({ message: 'Fingerprint registration is disabled in school settings' });
+        }
+        if (biometricEnabled && !biometricId) {
+            return res.status(400).json({ message: 'Fingerprint ID is required because biometric attendance is enabled' });
+        }
+
         // Validate input
         const validation = validateStudentInput(req.body);
         if (!validation.valid) {
@@ -209,9 +221,22 @@ const studentRegister = async (req, res) => {
             const conflictField = existingStudent.admissionNo === admissionNo ? 'Admission number' : 'Roll Number';
             return res.status(409).json({ message: `${conflictField} already exists` });
         }
-        else {
-            const student = new Student({
+        if (biometricId) {
+            const existingBiometricStudent = await Student.findOne({ biometricId });
+            if (existingBiometricStudent) {
+                return res.status(409).json({ message: 'This fingerprint ID is already registered to another student' });
+            }
+        }
+        const studentData = {
                 ...req.body,
+                ...(biometricEnabled && biometricId ? { biometricId } : {}),
+        };
+            if (!biometricEnabled) {
+                delete studentData.biometricId;
+            }
+
+        const student = new Student({
+                ...studentData,
                 admissionNo,
                 name: studentName,
                 email,
@@ -219,10 +244,10 @@ const studentRegister = async (req, res) => {
                 password: hashedPass,
                 role: 'Student',
                 forcePasswordChange: !requestedAdmissionNo && !req.body.password ? true : (!req.body.password ? true : false),
-            });
+        });
 
-            const result = await student.save();
-            await createParentAccounts(student);
+        const result = await student.save();
+        await createParentAccounts(student);
 
             const responseStudent = result.toObject();
             delete responseStudent.password;
@@ -285,7 +310,6 @@ const studentRegister = async (req, res) => {
                     console.error('Background notification processing error:', bgError);
                 }
             });
-        }
     } catch (err) {
         console.error('StudentReg error:', err);
         res.status(500).json({ message: err.message || 'Registration failure', error: err });
@@ -711,6 +735,7 @@ const normalizePaymentStatus = (status) => {
 
 const reconcileAmounts = (student) => {
     const history = Array.isArray(student.paymentHistory) ? student.paymentHistory : [];
+    const currentPeriod = student.feePeriodKey || 'initial';
     const totalFees = Number(student.totalFees) || 0;
     const normalizedHistory = history
         .map((p) => ({
@@ -722,10 +747,10 @@ const reconcileAmounts = (student) => {
 
     let runningTotal = 0;
     const updatedHistory = normalizedHistory.map((payment) => {
-        if (['Completed', 'Verified'].includes(payment.status)) {
+        if (payment.feePeriodKey === currentPeriod && ['Completed', 'Verified'].includes(payment.status)) {
             runningTotal += payment.amount;
         }
-        const balanceAfter = Math.max(totalFees - runningTotal, 0);
+        const balanceAfter = payment.feePeriodKey === currentPeriod ? totalFees - runningTotal : payment.balanceAfter;
         return {
             ...payment,
             balanceAfter,
@@ -733,7 +758,7 @@ const reconcileAmounts = (student) => {
     });
 
     student.amountPaid = runningTotal;
-    student.balance = Math.max(totalFees - runningTotal, 0);
+    student.balance = totalFees - runningTotal;
 
     if (totalFees > 0 && student.balance <= 0) {
         student.paymentStatus = 'Completed';
@@ -920,14 +945,16 @@ const getPaymentReconciliation = async (req, res) => {
         const transactionMap = {};
         const studentReconciliations = students.map((student) => {
             reconcileAmounts(student);
-            const completedPayments = student.paymentHistory.filter(p => ['Completed', 'Verified'].includes(p.status));
+            const currentPeriod = student.feePeriodKey || 'initial';
+            const completedPayments = student.paymentHistory.filter(p => p.feePeriodKey === currentPeriod && ['Completed', 'Verified'].includes(p.status));
             const computedPaid = completedPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
-            const expectedBalance = Math.max((student.totalFees || 0) - computedPaid, 0);
+            const expectedBalance = Number(student.totalFees || 0) - computedPaid;
 
             student.paymentHistory.forEach((payment) => {
-                if (payment.transactionId) {
-                    transactionMap[payment.transactionId] = transactionMap[payment.transactionId] || [];
-                    transactionMap[payment.transactionId].push({
+                const transactionId = payment.transactionId || payment.paymentReference || payment.reference;
+                if (transactionId) {
+                    transactionMap[transactionId] = transactionMap[transactionId] || [];
+                    transactionMap[transactionId].push({
                         studentId: student._id,
                         studentName: student.name,
                         admissionNo: student.admissionNo,
@@ -962,8 +989,8 @@ const getPaymentReconciliation = async (req, res) => {
             schoolId,
             totalStudents: students.length,
             totalExpectedFees: students.reduce((sum, student) => sum + (student.totalFees || 0), 0),
-            totalCollected: students.reduce((sum, student) => sum + (student.amountPaid || 0), 0),
-            totalOutstanding: students.reduce((sum, student) => sum + (student.balance || 0), 0),
+            totalCollected: students.reduce((sum, student) => sum + Number(student.amountPaid || 0), 0),
+            totalOutstanding: students.reduce((sum, student) => sum + Number(student.balance || 0), 0),
             duplicateTransactionCount: duplicateTransactions.length,
         };
 
@@ -1248,11 +1275,16 @@ const sendPaymentReminder = async (req, res) => {
 }
 
 const updateExamResult = async (req, res) => {
-    const { subName, marksObtained, examType, grade, level, points, remark, changeReason } = req.body;
+    const { subName, marksObtained, examType, grade, level, points, remark, gradingSystem, changeReason } = req.body;
 
     try {
         if (!subName) {
             return res.status(400).send({ message: 'Subject is required' });
+        }
+
+        const numericMarks = Number(marksObtained);
+        if (!Number.isFinite(numericMarks) || numericMarks < 0 || numericMarks > 100) {
+            return res.status(400).send({ message: 'Marks must be a number between 0 and 100' });
         }
 
         const normalizedExamType = (examType || 'CAT').toString().trim().toUpperCase();
@@ -1281,6 +1313,7 @@ const updateExamResult = async (req, res) => {
         if (level !== undefined) updateFields['examResult.$[elem].level'] = level;
         if (points !== undefined) updateFields['examResult.$[elem].points'] = points;
         if (remark !== undefined) updateFields['examResult.$[elem].remark'] = remark;
+        if (gradingSystem !== undefined) updateFields['examResult.$[elem].gradingSystem'] = gradingSystem;
 
         const updateResult = await Student.updateOne(
             {
@@ -1330,11 +1363,12 @@ const updateExamResult = async (req, res) => {
             return res.send(updatedStudent);
         }
 
-        const newEntry = { subName, examType: normalizedExamType, marksObtained };
+        const newEntry = { subName, examType: normalizedExamType, marksObtained: numericMarks };
         if (grade !== undefined) newEntry.grade = grade;
         if (level !== undefined) newEntry.level = level;
         if (points !== undefined) newEntry.points = points;
         if (remark !== undefined) newEntry.remark = remark;
+        if (gradingSystem !== undefined) newEntry.gradingSystem = gradingSystem;
 
         await Student.updateOne(
             { _id: req.params.id },

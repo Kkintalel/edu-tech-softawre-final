@@ -10,6 +10,7 @@ body,
   min-width: 0;
   width: 100%;
   min-height: 100%;
+  overflow-x: hidden;
 }
 
 img,
@@ -20,6 +21,23 @@ canvas {
 }
 
 table {
+  max-width: 100%;
+}
+
+button,
+input,
+select,
+textarea {
+  max-width: 100%;
+}
+
+.MuiTableContainer-root {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.MuiPaper-root,
+.MuiCard-root {
   max-width: 100%;
 }
 
@@ -113,6 +131,22 @@ a {
 }
 
 @media screen and (max-width: 480px) {
+  .MuiTypography-h3 {
+    font-size: 2rem;
+  }
+
+  .MuiTypography-h4 {
+    font-size: 1.75rem;
+  }
+
+  .MuiTypography-h5 {
+    font-size: 1.35rem;
+  }
+
+  .MuiButton-root {
+    min-height: 44px;
+  }
+
   .register {
     background-position: right;
   }

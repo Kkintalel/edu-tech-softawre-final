@@ -11,9 +11,14 @@ const StudentLearningPortal = () => {
     const [quizzes, setQuizzes] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [attendanceMessage, setAttendanceMessage] = useState('');
 
-    const classId = currentUser?.sclassName?._id || currentUser?.sclassName || currentUser?.teachSclass?._id || currentUser?.teachSclass;
-    const schoolId = currentUser?.school?._id || currentUser?.school;
+    const classValue = currentUser?.sclassName || currentUser?.teachSclass;
+    const classId = typeof classValue === 'object' ? classValue?._id || classValue?.id : classValue;
+    const schoolValue = currentUser?.school;
+    const schoolId = typeof schoolValue === 'object'
+        ? schoolValue?._id || schoolValue?.id
+        : schoolValue || currentUser?.schoolId;
     const headers = React.useMemo(() => (schoolId ? { 'x-admin-id': schoolId } : {}), [schoolId]);
 
     const getMaterialLink = (item) => {
@@ -26,6 +31,28 @@ const StudentLearningPortal = () => {
         if (!item?.meetingLink && !item?.meeting_url) return null;
         const link = item.meetingLink || item.meeting_url;
         return link.startsWith('http') ? link : `https://${link}`;
+    };
+
+    const joinLiveClass = async (item) => {
+        const studentId = currentUser?._id || currentUser?.id;
+        const link = getMeetingLink(item);
+        if (!studentId || !link) return;
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/LiveClasses/${item._id}/Join`, {
+                method: 'POST',
+                headers: { ...headers, 'Content-Type': 'application/json', 'x-user-id': studentId },
+                body: JSON.stringify({ studentId }),
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.message || 'Unable to join live class');
+            setAttendanceMessage(data.alreadyMarked
+                ? 'Attendance was already recorded for this subject today.'
+                : 'Online class attendance recorded successfully.');
+            window.open(data.meetingLink || link, '_blank', 'noopener,noreferrer');
+        } catch (joinError) {
+            setError(joinError.message);
+        }
     };
 
     useEffect(() => {
@@ -79,6 +106,7 @@ const StudentLearningPortal = () => {
 
     return (
         <Box sx={{ maxWidth: 1000, mx: 'auto', mt: 4, display: 'grid', gap: 2 }}>
+            {attendanceMessage && <Alert severity="success">{attendanceMessage}</Alert>}
             {error && <Alert severity="error">{error}</Alert>}
 
             <Paper sx={{ p: 3 }}>
@@ -120,7 +148,7 @@ const StudentLearningPortal = () => {
                         const link = getMeetingLink(item);
                         return (
                             <React.Fragment key={item._id || item.id}>
-                                <ListItem secondaryAction={link ? <MuiLink href={link} target="_blank" rel="noreferrer">Join</MuiLink> : null}>
+                                <ListItem secondaryAction={link ? <MuiLink component="button" onClick={() => joinLiveClass(item)}>Join</MuiLink> : null}>
                                     <ListItemText
                                         primary={item.topic || item.title || 'Live class session'}
                                         secondary={[

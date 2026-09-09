@@ -1,34 +1,32 @@
-import React from 'react'
+import React, { lazy, Suspense } from 'react'
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
-import { useSelector } from 'react-redux';
-import Homepage from './pages/Homepage';
-import AdminDashboard from './pages/admin/AdminDashboard';
-import StudentDashboard from './pages/student/StudentDashboard';
-import TeacherDashboard from './pages/teacher/TeacherDashboard';
-import LoginPage from './pages/LoginPage';
-import AdminRegisterPage from './pages/admin/AdminRegisterPage';
-import ChooseUser from './pages/ChooseUser';
-import ParentLogin from './pages/parent/ParentLogin';
-import ParentDashboard from './pages/parent/ParentDashboard';
-import ParentTimetable from './pages/parent/ParentTimetable';
-import PayFee from './pages/parent/PayFee';
-import PaymentHistory from './pages/parent/PaymentHistory';
-import AccountantDashboard from './pages/accountant/AccountantDashboard';
-import HRDashboard from './pages/hr/HRDashboard';
-import ForgotPasswordPage from './pages/ForgotPasswordPage';
-import ResetPasswordPage from './pages/ResetPasswordPage';
-import TermsPage from './pages/TermsPage';
-import PrivacyPage from './pages/PrivacyPage';
-import AcceptancePage from './pages/AcceptancePage';
-import DpaPage from './pages/DpaPage';
-import EulaPage from './pages/EulaPage';
+const Homepage = lazy(() => import('./pages/Homepage'));
+const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'));
+const StudentDashboard = lazy(() => import('./pages/student/StudentDashboard'));
+const TeacherDashboard = lazy(() => import('./pages/teacher/TeacherDashboard'));
+const LoginPage = lazy(() => import('./pages/LoginPage'));
+const AdminRegisterPage = lazy(() => import('./pages/admin/AdminRegisterPage'));
+const ChooseUser = lazy(() => import('./pages/ChooseUser'));
+const ParentLogin = lazy(() => import('./pages/parent/ParentLogin'));
+const ParentDashboard = lazy(() => import('./pages/parent/ParentDashboard'));
+const ParentTimetable = lazy(() => import('./pages/parent/ParentTimetable'));
+const PayFee = lazy(() => import('./pages/parent/PayFee'));
+const PaymentHistory = lazy(() => import('./pages/parent/PaymentHistory'));
+const AccountantDashboard = lazy(() => import('./pages/accountant/AccountantDashboard'));
+const HRDashboard = lazy(() => import('./pages/hr/HRDashboard'));
+const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage'));
+const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'));
+const TermsPage = lazy(() => import('./pages/TermsPage'));
+const PrivacyPage = lazy(() => import('./pages/PrivacyPage'));
+const AcceptancePage = lazy(() => import('./pages/AcceptancePage'));
+const DpaPage = lazy(() => import('./pages/DpaPage'));
+const EulaPage = lazy(() => import('./pages/EulaPage'));
 
 const App = () => {
-  const { currentRole } = useSelector(state => state.user);
-
   return (
     <Router>
-      <Routes>
+      <Suspense fallback={<div>Loading...</div>}>
+        <Routes>
         <Route path="/" element={<Homepage />} />
         <Route path="/choose" element={<ChooseUser visitor="normal" />} />
         <Route path="/chooseasguest" element={<ChooseUser visitor="guest" />} />
@@ -74,7 +72,8 @@ const App = () => {
         <Route path="/Teacher/*" element={<TeacherDashboard />} />
 
         <Route path='*' element={<Navigate to="/" />} />
-      </Routes>
+        </Routes>
+      </Suspense>
     </Router>
   )
 }

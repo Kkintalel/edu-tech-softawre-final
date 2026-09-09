@@ -25,6 +25,33 @@ const settingsSchema = new mongoose.Schema({
         default: '24H',
         enum: ['12H', '24H'],
     },
+    attendanceTrackingMode: {
+        type: String,
+        enum: ['daily', 'perClass', 'hybrid'],
+        default: 'daily',
+    },
+    markingAttendanceByTime: { type: Boolean, default: true },
+    enableBiometricAttendance: { type: Boolean, default: false },
+    workingDaysPerWeek: {
+        type: Number,
+        default: 5,
+        min: 1,
+        max: 7,
+    },
+    attendanceThreshold: {
+        type: Number,
+        default: 75,
+        min: 0,
+        max: 100,
+    },
+    autoGenerateAttendanceReports: { type: Boolean, default: true },
+    allowLateEntry: { type: Boolean, default: true },
+    lateEntryBuffer: {
+        type: Number,
+        default: 15,
+        min: 0,
+    },
+    allowEarlyExit: { type: Boolean, default: false },
     
     // Language Settings
     language: {
@@ -254,6 +281,28 @@ const settingsSchema = new mongoose.Schema({
                 paidBy: { type: mongoose.Schema.Types.ObjectId, ref: 'admin', default: null },
                 date: { type: Date, default: Date.now },
                 note: { type: String, default: '' },
+            }],
+            default: [],
+        },
+        supplierLedger: {
+            type: [{
+                type: { type: String, enum: ['Credit', 'Debit'], required: true },
+                supplier: { type: String, required: true },
+                amount: { type: Number, required: true, min: 0 },
+                reference: { type: String, default: '' },
+                description: { type: String, default: '' },
+                paymentMethod: { type: String, default: 'Cash' },
+                date: { type: Date, default: Date.now },
+                createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'admin', default: null },
+            }],
+            default: [],
+        },
+        supplierAccounts: {
+            type: [{
+                supplier: { type: String, required: true },
+                creditedAmount: { type: Number, default: 0, min: 0 },
+                lastPaymentDate: { type: Date, default: null },
+                lastReference: { type: String, default: '' },
             }],
             default: [],
         },

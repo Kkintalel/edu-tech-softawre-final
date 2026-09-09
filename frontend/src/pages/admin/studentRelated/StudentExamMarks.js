@@ -116,9 +116,22 @@ const StudentExamMarks = ({ situation }) => {
 
     const submitHandler = (event) => {
         event.preventDefault()
+
+        const numericMarks = Number(marksObtained);
+        if (!Number.isFinite(numericMarks) || numericMarks < 0 || numericMarks > 100) {
+            setMessage("Marks must be a number between 0 and 100");
+            setShowPopup(true);
+            return;
+        }
+        if (!chosenSubName) {
+            setMessage("Please select a subject");
+            setShowPopup(true);
+            return;
+        }
+
         setLoader(true)
         
-        const fields = { subName: chosenSubName, examType, marksObtained, gradingSystem, changeReason };
+        const fields = { subName: chosenSubName, examType, marksObtained: numericMarks, gradingSystem, changeReason };
         if (gradeInfo) {
             fields.grade = gradeInfo.grade;
             fields.level = gradeInfo.level;
@@ -139,7 +152,7 @@ const StudentExamMarks = ({ situation }) => {
         else if (error) {
             setLoader(false)
             setShowPopup(true)
-            setMessage("error")
+            setMessage(typeof error === 'string' ? error : "Marks submission failed. Please try again.")
         }
         else if (statestatus === "added") {
             setLoader(false)

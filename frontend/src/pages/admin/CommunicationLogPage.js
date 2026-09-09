@@ -64,7 +64,7 @@ const CommunicationLogPage = () => {
       const response = await axios.get(`${API_BASE_URL}/Message/Stats/Overview`, {
         headers: { 'x-admin-id': currentUser?._id }
       });
-      setStats(response.data || {});
+      setStats(response.data?.data || {});
     } catch (err) {
       console.error('Failed to load stats:', err);
     }
@@ -142,7 +142,7 @@ const CommunicationLogPage = () => {
                 Total Sent
               </Typography>
               <Typography variant="h6">
-                {stats.totalSent || 0}
+                {stats.sentMessages || 0}
               </Typography>
             </CardContent>
           </Card>
@@ -178,7 +178,7 @@ const CommunicationLogPage = () => {
                 Failed
               </Typography>
               <Typography variant="h6" sx={{ color: 'error.main' }}>
-                {stats.failedCount || 0}
+                {stats.failedMessages || 0}
               </Typography>
             </CardContent>
           </Card>

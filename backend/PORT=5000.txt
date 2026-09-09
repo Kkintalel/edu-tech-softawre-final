@@ -1,5 +1,5 @@
 PORT=5000
 FRONTEND_URL=http://192.168.210.241:3000
-MONGO_URL=mongodb+srv://james-koikai:X5KFvAMXIKX3jXydcd ".\my-school-managment-system-by-koikai-master\backend"
+MONGO_URL=mongodb+srv://<username>:<password>@<cluster-url>/schoolManagementSystem?retryWrites=true&w=majority
 npm startcd ".\my-school-managment-system-by-koikai-master\backend"
-npm start@cluster0.aahoxxj.mongodb.net/schoolManagementSystem?retryWrites=true&w=majority&appName=Cluster0
+npm start

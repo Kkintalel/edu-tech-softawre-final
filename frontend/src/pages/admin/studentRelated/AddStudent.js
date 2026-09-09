@@ -6,6 +6,7 @@ import Popup from '../../../components/Popup';
 import PhotoInput from '../../../components/PhotoInput';
 import { underControl } from '../../../redux/userRelated/userSlice';
 import { getAllSclasses } from '../../../redux/sclassRelated/sclassHandle';
+import { fetchSystemSettings } from '../../../redux/settingsRelated/settingsHandle';
 import { CircularProgress } from '@mui/material';
 
 const AddStudent = ({ situation }) => {
@@ -36,6 +37,8 @@ const AddStudent = ({ situation }) => {
     const [birthCertificateNumber, setBirthCertificateNumber] = useState('');
     const [nemisNumber, setNemisNumber] = useState('');
     const [previousLevelGrade, setPreviousLevelGrade] = useState('');
+    const [biometricId, setBiometricId] = useState('');
+    const [biometricEnabled, setBiometricEnabled] = useState(false);
 
     const schoolValue = currentUser?.school?._id || currentUser?.school || currentUser?.schoolId || currentUser?._id;
     const adminID = schoolValue && typeof schoolValue === 'object'
@@ -57,6 +60,12 @@ const AddStudent = ({ situation }) => {
     useEffect(() => {
         dispatch(getAllSclasses(adminID, "Sclass"));
     }, [adminID, dispatch]);
+
+    useEffect(() => {
+        dispatch(fetchSystemSettings())
+            .then((settings) => setBiometricEnabled(Boolean(settings?.enableBiometricAttendance)))
+            .catch(() => setBiometricEnabled(false));
+    }, [dispatch]);
 
     const changeHandler = (event) => {
         if (event.target.value === 'Select Class') {
@@ -92,6 +101,7 @@ const AddStudent = ({ situation }) => {
         birthCertificateNumber,
         nemisNumber,
         previousLevelGrade,
+        ...(biometricEnabled && biometricId.trim() ? { biometricId: biometricId.trim() } : {}),
     }
 
     const submitHandler = (event) => {
@@ -101,6 +111,11 @@ const AddStudent = ({ situation }) => {
             setShowPopup(true)
         }
         else {
+            if (biometricEnabled && !biometricId.trim()) {
+                setMessage("Enter the fingerprint ID returned by the biometric device")
+                setShowPopup(true)
+                return
+            }
             setLoader(true)
             dispatch(registerUser(fields, role))
         }
@@ -177,6 +192,23 @@ const AddStudent = ({ situation }) => {
                         }}
                         photoPreview={photoPreview}
                     />
+
+                    {biometricEnabled && (
+                        <>
+                            <label>Fingerprint ID</label>
+                            <input
+                                className="registerInput"
+                                type="text"
+                                placeholder="Enter the ID assigned by the fingerprint device"
+                                value={biometricId}
+                                onChange={(event) => setBiometricId(event.target.value)}
+                                required
+                            />
+                            <p style={{ color: '#555', fontSize: '0.9rem', marginTop: '4px' }}>
+                                Enroll the student on the connected biometric device first, then enter its fingerprint ID here.
+                            </p>
+                        </>
+                    )}
 
                     <label>Parent / Guardian Name</label>
                     <input className="registerInput" type="text" placeholder="Enter parent or guardian name..."

@@ -1,7 +1,8 @@
 const applyClassFeeToStudent = (student = {}, classFeeAmount = 0) => {
-  const totalFees = Number(classFeeAmount || 0);
+  const carriedForwardBalance = Number(student.carriedForwardBalance || 0);
+  const totalFees = Number(classFeeAmount || 0) + carriedForwardBalance;
   const amountPaid = Number(student.amountPaid || 0);
-  const balance = Math.max(totalFees - amountPaid, 0);
+  const balance = totalFees - amountPaid;
   const paymentStatus = balance > 0 ? (student.paymentStatus || 'Pending') : 'Completed';
 
   return {

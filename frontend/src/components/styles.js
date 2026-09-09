@@ -48,6 +48,11 @@ export const AppBar = styled(MuiAppBar, {
     [theme.breakpoints.down('sm')]: {
         marginLeft: 0,
         width: '100%',
+        '& .MuiToolbar-root': {
+            minHeight: 56,
+            paddingLeft: theme.spacing(1),
+            paddingRight: theme.spacing(1),
+        },
         ...(open && {
             width: '100%',
         }),
@@ -88,6 +93,7 @@ export const Drawer = styled(MuiDrawer, { shouldForwardProp: (prop) => prop !== 
                 width: 'min(82vw, 280px)',
                 height: '100dvh',
                 maxWidth: '100%',
+                overflowY: 'auto',
                 boxShadow: theme.shadows[8],
             },
         },

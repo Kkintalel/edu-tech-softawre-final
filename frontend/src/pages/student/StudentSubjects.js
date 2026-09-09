@@ -285,15 +285,9 @@ const StudentSubjects = () => {
                                     variant="contained"
                                     color="primary"
                                     onClick={handlePrintReportCard}
-                                    disabled={!hasPassedEligibility}
                                 >
                                     Print / Download Report Card
                                 </Button>
-                                {!hasPassedEligibility && (
-                                    <Typography color="error" sx={{ mt: 1 }}>
-                                        You need at least 75% fee payment, 75% attendance, and CAT exam results to download the report card.
-                                    </Typography>
-                                )}
                             </Box>
 
                             <Paper sx={{ position: 'fixed', bottom: 0, left: 0, right: 0 }} elevation={3}>

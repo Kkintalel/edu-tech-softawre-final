@@ -8,6 +8,8 @@ const { verifyAdmin, verifySuperAdmin } = require('../middleware/superadminAuth'
 
 // Mark attendance
 router.post('/Attendance/Mark', verifyAdmin, attendanceController.markAttendance);
+router.post('/Attendance/Biometric/Student', verifyAdmin, attendanceController.markBiometricStudentAttendance);
+router.post('/Attendance/Biometric/Staff', verifyAdmin, attendanceController.markBiometricStaffAttendance);
 
 // Get attendance records
 router.get('/Attendance/GetAll', verifyAdmin, attendanceController.getAttendance);

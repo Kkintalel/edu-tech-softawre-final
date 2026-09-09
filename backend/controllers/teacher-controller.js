@@ -526,6 +526,17 @@ const payTeacherSalary = async (req, res) => {
         }
 
         teacher.salaryHistory = teacher.salaryHistory || [];
+        const paymentDate = new Date();
+        const payrollPeriod = `${paymentDate.getFullYear()}-${String(paymentDate.getMonth() + 1).padStart(2, '0')}`;
+        const alreadyPaidThisPeriod = teacher.salaryHistory.some((entry) => {
+            const entryDate = entry.date || paymentDate;
+            const entryPeriod = entry.payrollPeriod || `${new Date(entryDate).getFullYear()}-${String(new Date(entryDate).getMonth() + 1).padStart(2, '0')}`;
+            return entryPeriod === payrollPeriod
+                && (entry.status === 'Paid' || entry.approvalStatus === 'Approved');
+        });
+        if (alreadyPaidThisPeriod) {
+            return res.status(400).send({ message: 'This teacher has already received salary for the current month.' });
+        }
         const hasPendingPayment = teacher.salaryHistory.some((entry) =>
             entry.approvalStatus === 'Pending' || entry.status === 'Pending'
         );
@@ -547,7 +558,8 @@ const payTeacherSalary = async (req, res) => {
             bankAccount: bankAccount || teacher.bankAccount || '',
             accountHolderName: accountHolderName || teacher.accountHolderName || '',
             paidBy: getAdminIdFromReq(req),
-            date: new Date(),
+            date: paymentDate,
+            payrollPeriod,
             status: 'Pending', // Changed from 'Paid' to require approval
             approvalStatus: 'Pending',
             approvedBy: null,
@@ -597,6 +609,18 @@ const approveSalaryPayment = async (req, res) => {
         }
 
         const payment = teacher.salaryHistory[paymentIndex];
+        const paymentDate = payment.date || new Date();
+        const payrollPeriod = payment.payrollPeriod || `${new Date(paymentDate).getFullYear()}-${String(new Date(paymentDate).getMonth() + 1).padStart(2, '0')}`;
+        const duplicateApprovedPayment = teacher.salaryHistory.some((entry, index) => {
+            if (index === Number(paymentIndex)) return false;
+            const entryDate = entry.date || new Date();
+            const entryPeriod = entry.payrollPeriod || `${new Date(entryDate).getFullYear()}-${String(new Date(entryDate).getMonth() + 1).padStart(2, '0')}`;
+            return entryPeriod === payrollPeriod
+                && (entry.status === 'Paid' || entry.approvalStatus === 'Approved');
+        });
+        if (duplicateApprovedPayment) {
+            return res.status(400).send({ message: 'This teacher has already received salary for this payroll month.' });
+        }
         const approverId = approvedBy || getAdminIdFromReq(req);
         const paymentAmount = Number(payment.amount) || 0;
 

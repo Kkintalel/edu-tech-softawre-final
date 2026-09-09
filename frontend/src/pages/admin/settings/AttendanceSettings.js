@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Box, Paper, TextField, Button, Typography, Switch, FormControlLabel, Grid, Alert } from '@mui/material';
-import { useSelector } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
+import { fetchSystemSettings, saveSystemSettings } from '../../../redux/settingsRelated/settingsHandle';
 
 const AttendanceSettings = () => {
   const { currentUser } = useSelector(state => state.user);
+  const dispatch = useDispatch();
   const [settings, setSettings] = useState({
     attendanceTrackingMode: 'daily',
     markingAttendanceByTime: true,
@@ -20,8 +22,15 @@ const AttendanceSettings = () => {
   const [message, setMessage] = useState('');
 
   useEffect(() => {
-    setLoading(false);
-  }, []);
+    dispatch(fetchSystemSettings())
+      .then((savedSettings) => {
+        if (savedSettings) {
+          setSettings((previous) => ({ ...previous, ...savedSettings }));
+        }
+      })
+      .catch(() => setMessage('Error loading attendance settings'))
+      .finally(() => setLoading(false));
+  }, [dispatch]);
 
   const handleChange = (field, value) => {
     setSettings(prev => ({
@@ -33,6 +42,7 @@ const AttendanceSettings = () => {
   const handleSave = async () => {
     setSaving(true);
     try {
+      await dispatch(saveSystemSettings(settings));
       setMessage('Settings saved successfully');
       setTimeout(() => setMessage(''), 3000);
     } catch (error) {

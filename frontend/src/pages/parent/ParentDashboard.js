@@ -145,11 +145,6 @@ const ParentDashboard = () => {
             return;
         }
 
-        if (Number(paymentAmount) > studentInfo.balance) {
-            setPayError(`Payment amount cannot exceed outstanding balance of KES ${studentInfo.balance}`);
-            return;
-        }
-
         if (paymentMethod !== 'Cash' && !transactionId) {
             setPayError('Please enter a transaction ID or reference for this payment method');
             return;

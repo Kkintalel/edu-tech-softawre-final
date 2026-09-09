@@ -383,6 +383,18 @@ const FinanceManagement = () => {
             <TextField fullWidth label="Note" value={supplyForm.note} onChange={(event) => handleSupplyFormChange('note', event.target.value)} />
           </Grid>
         </Grid>
+        <Typography variant="subtitle1" sx={{ mt: 3, mb: 1 }}>Supplier Accounts</Typography>
+        {(financeSettings.supplierAccounts || []).length === 0 ? (
+          <Typography variant="body2" color="text.secondary">No supplier accounts yet.</Typography>
+        ) : (
+          (financeSettings.supplierAccounts || []).map((account, index) => (
+            <Box key={`${account.supplier}-${index}`} sx={{ py: 1, borderBottom: '1px solid #e0e0e0' }}>
+              <Typography variant="body2">
+                <strong>{account.supplier}</strong> — Credited: {Number(account.creditedAmount || 0).toLocaleString()} — Last payment: {account.lastPaymentDate ? new Date(account.lastPaymentDate).toLocaleDateString() : '-'}
+              </Typography>
+            </Box>
+          ))
+        )}
         <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
           <Button variant="contained" onClick={addSupply} disabled={payingSupplier}>
             {payingSupplier ? 'Paying...' : 'Pay Supplier'}

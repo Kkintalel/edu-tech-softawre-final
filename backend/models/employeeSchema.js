@@ -63,6 +63,12 @@ const employeeSchema = new mongoose.Schema({
         unique: true,
         required: true,
     },
+    biometricId: {
+        type: String,
+        trim: true,
+        sparse: true,
+        unique: true,
+    },
     department: {
         type: String,
         required: [true, 'Department is required'],
@@ -228,6 +234,7 @@ const employeeSchema = new mongoose.Schema({
     paymentHistory: [
         {
             paymentDate: Date,
+            payrollPeriod: { type: String, default: '' },
             grossAmount: Number,
             netAmount: Number,
             paymentMethod: String,

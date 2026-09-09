@@ -211,6 +211,40 @@ const Payments = () => {
           <Typography>No duplicate transactions found.</Typography>
         )}
       </Paper>
+
+      <Paper sx={{ p: 2, mt: 2 }}>
+        <Typography variant="subtitle1" sx={{ mb: 1 }}>Student Reconciliation Review</Typography>
+        {Array.isArray(data?.studentReconciliations) && data.studentReconciliations.some((student) => student.mismatch || student.pendingPayments?.length) ? (
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>Student</TableCell>
+                <TableCell>Admission No.</TableCell>
+                <TableCell>Recorded Paid</TableCell>
+                <TableCell>Computed Paid</TableCell>
+                <TableCell>Balance</TableCell>
+                <TableCell>Pending Payments</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {data.studentReconciliations
+                .filter((student) => student.mismatch || student.pendingPayments?.length)
+                .map((student) => (
+                  <TableRow key={student.studentId}>
+                    <TableCell>{student.name}</TableCell>
+                    <TableCell>{student.admissionNo || '-'}</TableCell>
+                    <TableCell>{Number(student.amountPaid || 0).toLocaleString()}</TableCell>
+                    <TableCell>{Number(student.computedPaid || 0).toLocaleString()}</TableCell>
+                    <TableCell>{Number(student.balance || 0).toLocaleString()}</TableCell>
+                    <TableCell>{student.pendingPayments?.length || 0}</TableCell>
+                  </TableRow>
+                ))}
+            </TableBody>
+          </Table>
+        ) : (
+          <Typography>No student payment mismatches or pending transaction payments found.</Typography>
+        )}
+      </Paper>
     </Box>
   );
 };

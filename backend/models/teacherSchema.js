@@ -85,6 +85,10 @@ const teacherSchema = new mongoose.Schema({
                 type: Date,
                 default: Date.now,
             },
+            payrollPeriod: {
+                type: String,
+                default: '',
+            },
             status: {
                 type: String,
                 enum: ['Paid', 'Pending', 'Failed'],

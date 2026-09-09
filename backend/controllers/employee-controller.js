@@ -118,6 +118,11 @@ const canProcessPayroll = (adminRole) => {
     return ['Admin', 'SuperAdmin', 'Accountant'].includes(adminRole);
 };
 
+const getPayrollPeriod = (date = new Date()) => {
+    const paymentDate = new Date(date);
+    return `${paymentDate.getFullYear()}-${String(paymentDate.getMonth() + 1).padStart(2, '0')}`;
+};
+
 const ensureSchoolAccessible = async (schoolId, adminContext = null) => {
     if (!schoolId && !adminContext?.school && !adminContext?.schoolId && !adminContext?.schoolName) {
         return { allowed: false, message: 'School ID is required' };
@@ -402,6 +407,16 @@ const approveEmployeePayment = async (req, res) => {
         }
 
         const payment = employee.paymentHistory[paymentIndex];
+        const payrollPeriod = payment.payrollPeriod || getPayrollPeriod(payment.paymentDate);
+        const duplicateApprovedPayment = employee.paymentHistory.some((entry, index) => {
+            if (index === paymentIndex) return false;
+            const entryPeriod = entry.payrollPeriod || getPayrollPeriod(entry.paymentDate);
+            return entryPeriod === payrollPeriod
+                && (entry.status === 'Paid' || entry.approvalStatus === 'Approved');
+        });
+        if (duplicateApprovedPayment) {
+            return res.status(400).json({ message: 'This employee has already received salary for this payroll month.' });
+        }
         const paymentAmount = Number(payment.netAmount || payment.grossAmount || 0);
         if (!paymentAmount || paymentAmount <= 0) {
             return res.status(400).json({ message: 'Payment amount must be greater than zero' });
@@ -520,6 +535,15 @@ const payEmployeeSalary = async (req, res) => {
         }
 
         employee.paymentHistory = employee.paymentHistory || [];
+        const payrollPeriod = getPayrollPeriod();
+        const alreadyPaidThisPeriod = employee.paymentHistory.some((entry) => {
+            const entryPeriod = entry.payrollPeriod || getPayrollPeriod(entry.paymentDate);
+            return entryPeriod === payrollPeriod
+                && (entry.status === 'Paid' || entry.approvalStatus === 'Approved');
+        });
+        if (alreadyPaidThisPeriod) {
+            return res.status(400).json({ message: 'This employee has already received salary for the current month.' });
+        }
         // Consider payments pending when either `status` or `approvalStatus` indicates pending
         const pendingPayment = employee.paymentHistory.some((entry) => entry.status === 'Pending' || entry.approvalStatus === 'Pending');
         if (pendingPayment) {
@@ -528,6 +552,7 @@ const payEmployeeSalary = async (req, res) => {
 
         employee.paymentHistory.push({
             paymentDate: new Date(),
+            payrollPeriod,
             grossAmount: numericAmount,
             netAmount: numericAmount,
             paymentMethod,

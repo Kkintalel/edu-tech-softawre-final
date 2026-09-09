@@ -1,7 +1,9 @@
 import React from 'react'
 import styled from 'styled-components';
-import { Card, CardContent, Typography, Grid, Box, Avatar, Container, Paper } from '@mui/material';
+import { Card, CardContent, Typography, Grid, Box, Avatar, Container, Paper, Button } from '@mui/material';
 import { useSelector } from 'react-redux';
+import { buildPrintBrandingHtml, printBrandingStyles } from '../../utils/printBranding';
+import PrintOutlinedIcon from '@mui/icons-material/PrintOutlined';
 
 const StudentProfile = () => {
   const { currentUser, response, error } = useSelector((state) => state.user);
@@ -11,6 +13,42 @@ const StudentProfile = () => {
 
   const sclassName = currentUser.sclassName
   const studentSchool = currentUser.school
+
+  const printFeeStructure = () => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Student Fee Structure</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 24px; color: #222; }
+            ${printBrandingStyles}
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            th, td { border: 1px solid #ccc; padding: 10px; text-align: left; }
+            th { background: #f0f0f0; }
+          </style>
+        </head>
+        <body>
+          ${buildPrintBrandingHtml(currentUser, studentSchool)}
+          <h2>Student Fee Structure</h2>
+          <p><strong>Student:</strong> ${currentUser.name || ''}</p>
+          <p><strong>Class:</strong> ${sclassName?.sclassName || ''}</p>
+          <table>
+            <tr><th>Description</th><th>Amount (KES)</th></tr>
+            <tr><td>Total Fees</td><td>${currentUser.totalFees ?? 0}</td></tr>
+            <tr><td>Amount Paid</td><td>${currentUser.amountPaid ?? 0}</td></tr>
+            <tr><td>Balance / Credit</td><td>${currentUser.balance ?? 0}</td></tr>
+          </table>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+    printWindow.close();
+  };
 
   return (
     <>
@@ -74,6 +112,11 @@ const StudentProfile = () => {
               </Box>
             </Grid>
           </Grid>
+          <Box display="flex" justifyContent="center" sx={{ mt: 3 }}>
+            <Button variant="contained" startIcon={<PrintOutlinedIcon />} onClick={printFeeStructure}>
+              Print Fee Structure
+            </Button>
+          </Box>
         </StyledPaper>
         <Card>
           <CardContent>

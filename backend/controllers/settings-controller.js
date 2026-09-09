@@ -144,6 +144,7 @@ const applyFinanceSettingsToStudents = async (schoolId, financeSettings = {}) =>
                     amountPaid: updatedStudent.amountPaid,
                     balance: updatedStudent.balance,
                     paymentStatus: updatedStudent.paymentStatus,
+                    carriedForwardBalance: updatedStudent.carriedForwardBalance,
                 },
             });
             updatedStudents += 1;
@@ -299,23 +300,78 @@ const paySupplier = async (req, res) => {
         const auth = await verifyAuthorization(adminId, null, req.params.schoolId);
         if (!auth.authorized) return res.status(403).json({ message: auth.message });
 
-        const payment = { supplier, item, amount: numericAmount, paymentMethod, mpesaNumber, bankAccount, reference, note, status: 'Paid', paidBy: adminId, date: new Date() };
+        const schoolId = req.params.schoolId;
+        let school = await School.findById(schoolId) || await School.findOne({ schoolAdmin: schoolId });
+        if (!school) return res.status(404).json({ message: 'School account not found' });
+
+        const normalizedReference = String(reference || '').trim();
         let settings = await Settings.findOne({ school: req.params.schoolId });
         if (!settings) settings = new Settings({ school: req.params.schoolId });
         settings.financeSettings = settings.financeSettings || {};
+        const duplicatePayment = (settings.financeSettings.supplies || []).some((entry) =>
+            normalizedReference && entry.reference && entry.reference.trim() === normalizedReference
+        );
+        if (duplicatePayment) return res.status(409).json({ message: 'A supplier payment with this reference already exists' });
+
+        const paymentDate = new Date();
+        const payment = { supplier, item, amount: numericAmount, paymentMethod, mpesaNumber, bankAccount, reference: normalizedReference, note, status: 'Paid', paidBy: adminId, date: paymentDate };
         settings.financeSettings.supplies = [...(settings.financeSettings.supplies || []), payment];
+        settings.financeSettings.supplierLedger = [...(settings.financeSettings.supplierLedger || []), {
+            type: 'Credit',
+            supplier,
+            amount: numericAmount,
+            reference: normalizedReference || `SUPPLY-${paymentDate.getTime()}`,
+            description: `Supplier credited for ${item}`,
+            paymentMethod,
+            date: paymentDate,
+            createdBy: adminId,
+        }];
+        settings.financeSettings.supplierAccounts = settings.financeSettings.supplierAccounts || [];
+        const normalizedSupplier = supplier.trim().toLowerCase();
+        let supplierAccount = settings.financeSettings.supplierAccounts.find(
+            (account) => account.supplier.trim().toLowerCase() === normalizedSupplier
+        );
+        if (!supplierAccount) {
+            settings.financeSettings.supplierAccounts.push({
+                supplier: supplier.trim(),
+                creditedAmount: numericAmount,
+                lastPaymentDate: paymentDate,
+                lastReference: normalizedReference,
+            });
+        } else {
+            supplierAccount.creditedAmount = Number(supplierAccount.creditedAmount || 0) + numericAmount;
+            supplierAccount.lastPaymentDate = paymentDate;
+            supplierAccount.lastReference = normalizedReference;
+        }
         settings.updatedAt = new Date();
         settings.updatedBy = adminId;
 
-        const school = await School.findById(req.params.schoolId) || await School.findOne({ schoolAdmin: req.params.schoolId });
-        if (school) {
-            school.accountBalance = Number(school.accountBalance || 0) - numericAmount;
-            school.accountLedger = school.accountLedger || [];
-            school.accountLedger.push({ type: 'Debit', amount: numericAmount, reference: reference || `SUPPLY-${Date.now()}`, description: `Supplier payment to ${supplier} via ${paymentMethod}`, relatedEntity: 'Supplier', createdBy: adminId });
-            await school.save();
+        school.accountBalance = Number(school.accountBalance || 0) - numericAmount;
+        school.accountLedger = school.accountLedger || [];
+        school.accountLedger.push({ type: 'Debit', amount: numericAmount, reference: normalizedReference || `SUPPLY-${paymentDate.getTime()}`, description: `Supplier payment to ${supplier} via ${paymentMethod}`, relatedEntity: 'Supplier', createdBy: adminId });
+        const schoolBefore = school.toObject();
+        delete schoolBefore._id;
+        delete schoolBefore.__v;
+        const settingsSnapshot = settings.isNew ? null : settings.toObject();
+        if (settingsSnapshot) {
+            delete settingsSnapshot._id;
+            delete settingsSnapshot.__v;
         }
-        await settings.save();
-        return res.status(201).json({ message: 'Supplier paid successfully', payment, schoolBalance: school?.accountBalance ?? null });
+        try {
+            await school.save();
+            await settings.save();
+        } catch (saveError) {
+            if (schoolBefore) await School.findByIdAndUpdate(school._id, { $set: schoolBefore });
+            if (settingsSnapshot) await Settings.findByIdAndUpdate(settings._id, { $set: settingsSnapshot });
+            else await Settings.findByIdAndDelete(settings._id);
+            throw saveError;
+        }
+        return res.status(201).json({
+            message: 'Supplier paid successfully; school bank debited and supplier credited',
+            payment,
+            supplierCredit: settings.financeSettings.supplierLedger[settings.financeSettings.supplierLedger.length - 1],
+            schoolBalance: school.accountBalance,
+        });
     } catch (error) {
         return res.status(500).json({ message: 'Supplier payment failed', error: error.message });
     }
@@ -611,9 +667,14 @@ const createManualBackup = async (req, res) => {
         }
 
         const admin = await Admin.findById(adminId);
+        const school = await resolveBackupSchool(schoolId);
+        const canonicalSchoolId = school?._id || schoolId;
+        if (!school && !mongoose.Types.ObjectId.isValid(schoolId)) {
+            return res.status(404).json({ message: 'School not found' });
+        }
 
         const result = await createDatabaseBackup(
-            schoolId,
+            canonicalSchoolId,
             'manual',
             backupMode,
             adminId,
@@ -660,7 +721,8 @@ const getSchoolBackups = async (req, res) => {
             return res.status(403).json({ message: auth.message });
         }
 
-        const result = await getAllBackups(getBackupSchoolIds(school) || canonicalSchoolId, parseInt(page), parseInt(limit), {
+        const backupSchoolIds = getBackupSchoolIds(school);
+        const result = await getAllBackups(backupSchoolIds.length ? backupSchoolIds : canonicalSchoolId, parseInt(page), parseInt(limit), {
             backupType,
             status,
         });
@@ -763,7 +825,8 @@ const getBackupStats = async (req, res) => {
             return res.status(403).json({ message: auth.message });
         }
 
-        const result = await getBackupStatistics(getBackupSchoolIds(school) || canonicalSchoolId);
+        const backupSchoolIds = getBackupSchoolIds(school);
+        const result = await getBackupStatistics(backupSchoolIds.length ? backupSchoolIds : canonicalSchoolId);
 
         res.status(200).json(result);
     } catch (error) {

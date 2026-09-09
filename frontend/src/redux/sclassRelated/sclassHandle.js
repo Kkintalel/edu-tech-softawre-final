@@ -135,7 +135,7 @@ export const promoteClassStudents = (sourceClassId, targetClassId, options = {})
         const schoolId = currentUser?.school?._id || currentUser?.school || currentUser?.schoolId || null;
         const headers = schoolId ? { 'x-admin-id': schoolId } : {};
 
-        const payload = { targetClassId };
+        const payload = { targetClassId, completedTerms: options.completedTerms };
         if (options.moveSubjects) payload.moveSubjects = true;
         if (options.updateRollNumbers) payload.updateRollNumbers = true;
 

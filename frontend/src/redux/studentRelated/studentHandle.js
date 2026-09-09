@@ -87,8 +87,9 @@ export const updateStudentFields = (id, fields, address) => async (dispatch) => 
         } else {
             dispatch(stuffDone());
         }
+        return result.data;
     } catch (error) {
-        dispatch(getError(error));
+        dispatch(getError(error.response?.data?.message || error.message || 'Request failed'));
     }
 }
 

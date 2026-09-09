@@ -13,7 +13,6 @@ const studentSchema = new mongoose.Schema({
         required: true,
         trim: true,
         unique: true,
-        sparse: true
     },
     email: {
         type: String,
@@ -121,6 +120,12 @@ const studentSchema = new mongoose.Schema({
         ref: 'admin',
         required: true,
     },
+    biometricId: {
+        type: String,
+        trim: true,
+        sparse: true,
+        unique: true,
+    },
     role: {
         type: String,
         default: "Student"
@@ -137,6 +142,15 @@ const studentSchema = new mongoose.Schema({
         type: Number,
         default: 0
     },
+    feePeriodKey: {
+        type: String,
+        default: 'initial'
+    },
+    carriedForwardBalance: {
+        type: Number,
+        default: 0,
+        min: 0
+    },
     paymentStatus: {
         type: String,
         enum: ['Pending', 'Completed', 'Failed', 'Verified'],
@@ -150,7 +164,8 @@ const studentSchema = new mongoose.Schema({
             receiptNumber: { type: String, required: true },
             status: { type: String, enum: ['Pending', 'Completed', 'Failed', 'Verified'], default: 'Pending' },
             transactionId: { type: String, default: '' },
-            balanceAfter: { type: Number, required: true },
+            balanceAfter: { type: Number, required: true, default: 0 },
+            feePeriodKey: { type: String, default: 'initial' },
             verifiedBy: { type: String, default: '' },
             verifiedDate: { type: Date, default: null },
             provider: { type: String, default: '' },
@@ -218,6 +233,11 @@ const studentSchema = new mongoose.Schema({
             enum: ['Present', 'Absent'],
             required: true
         },
+        checkInMethod: {
+            type: String,
+            enum: ['Manual', 'Biometric', 'Online Class'],
+            default: 'Manual'
+        },
         subName: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'subject',
@@ -228,6 +248,19 @@ const studentSchema = new mongoose.Schema({
 });
 studentSchema.set('toJSON', { getters: true });
 studentSchema.set('toObject', { getters: true });
+
+studentSchema.pre('validate', function assignPaymentPeriod(next) {
+    const currentPeriod = this.feePeriodKey || 'initial';
+    if (Array.isArray(this.paymentHistory)) {
+        this.paymentHistory.forEach((payment) => {
+            if (!payment.feePeriodKey) payment.feePeriodKey = currentPeriod;
+            if (payment.balanceAfter === undefined || payment.balanceAfter === null || Number.isNaN(Number(payment.balanceAfter))) {
+                payment.balanceAfter = Number(this.balance || 0);
+            }
+        });
+    }
+    next();
+});
 
 studentSchema.index({ school: 1, admissionNo: 1 }, { unique: true });
 studentSchema.index({ school: 1, sclassName: 1, rollNum: 1 }, { unique: true });
