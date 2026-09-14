@@ -638,6 +638,42 @@ const getStudentDetail = async (req, res) => {
         reconcileAmounts(student);
         const studentObj = student.toObject({ getters: true });
         delete studentObj.password;
+
+        const classmates = await Student.find({
+            school: student.school?._id || student.school,
+            sclassName: student.sclassName?._id || student.sclassName,
+        }).select('examResult');
+        const totals = classmates.map((classmate) => {
+            const results = classmate.examResult || [];
+            return {
+                totalMarks: results.reduce((sum, result) => sum + Number(result.marksObtained || 0), 0),
+                totalPoints: results.reduce((sum, result) => sum + Number(result.points || 0), 0),
+            };
+        });
+        const studentTotalMarks = totals.find((_, index) => String(classmates[index]._id) === String(student._id))?.totalMarks || 0;
+        const studentTotalPoints = totals.find((_, index) => String(classmates[index]._id) === String(student._id))?.totalPoints || 0;
+        const rankFor = (value, key) => 1 + totals.filter((entry) => entry[key] > value).length;
+        const subjectRanks = {};
+        (student.examResult || []).forEach((result) => {
+            const subjectId = String(result.subName?._id || result.subName);
+            const studentSubjectMarks = (student.examResult || [])
+                .filter((entry) => String(entry.subName?._id || entry.subName) === subjectId)
+                .reduce((sum, entry) => sum + Number(entry.marksObtained || 0), 0);
+            const classSubjectMarks = classmates.map((classmate) => (classmate.examResult || [])
+                .filter((entry) => String(entry.subName?._id || entry.subName) === subjectId)
+                .reduce((sum, entry) => sum + Number(entry.marksObtained || 0), 0));
+            subjectRanks[subjectId] = {
+                rank: 1 + classSubjectMarks.filter((marks) => marks > studentSubjectMarks).length,
+                outOf: classSubjectMarks.length,
+            };
+        });
+        studentObj.reportSummary = {
+            totalMarks: studentTotalMarks,
+            totalPoints: studentTotalPoints,
+            overallRank: rankFor(studentTotalMarks, 'totalMarks'),
+            overallOutOf: totals.length,
+            subjectRanks,
+        };
         res.send(studentObj);
     } catch (err) {
         res.status(500).json(err);

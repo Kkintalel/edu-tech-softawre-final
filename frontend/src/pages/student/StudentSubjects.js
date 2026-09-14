@@ -7,6 +7,7 @@ import CustomBarChart from '../../components/CustomBarChart'
 import { calculateGrade, getGradeColor, formatGrade } from '../../utils/gradingSystem';
 import { calculateOverallAttendancePercentage } from '../../components/attendanceCalculator';
 import { buildPrintBrandingHtml, printBrandingStyles } from '../../utils/printBranding';
+import { LineChart, Line, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 
 import InsertChartIcon from '@mui/icons-material/InsertChart';
 import InsertChartOutlinedIcon from '@mui/icons-material/InsertChartOutlined';
@@ -51,6 +52,19 @@ const StudentSubjects = () => {
         () => subjectMarks.filter((result) => result.examType === 'END_TERM'),
         [subjectMarks]
     );
+
+    const reportSummary = userDetails?.reportSummary || {};
+    const getSubjectLabel = (result) => typeof result?.subName === 'string'
+        ? result.subName
+        : result?.subName?.subName || 'Unknown Subject';
+    const trendData = useMemo(() => ['CAT', 'END_TERM'].map((examType) => {
+        const results = subjectMarks.filter((result) => result.examType === examType);
+        const marks = results.map((result) => Number(result.marksObtained || 0));
+        return {
+            exam: examType === 'END_TERM' ? 'End term' : 'CAT',
+            average: marks.length ? Math.round((marks.reduce((sum, mark) => sum + mark, 0) / marks.length) * 10) / 10 : null,
+        };
+    }).filter((entry) => entry.average !== null), [subjectMarks]);
 
     const feePercentage = useMemo(() => {
         const totalFees = Number(userDetails?.totalFees ?? currentUser?.totalFees ?? 0);
@@ -156,9 +170,9 @@ const StudentSubjects = () => {
                         {results.length > 0 ? (
                             results.map((result, index) => {
                                 if (!result.subName) return null;
-                                const subjectLabel = typeof result.subName === 'string'
-                                    ? result.subName
-                                    : result.subName?.subName || 'Unknown Subject';
+                                const subjectLabel = getSubjectLabel(result);
+                                const subjectId = String(result.subName?._id || result.subName);
+                                const subjectRank = reportSummary.subjectRanks?.[subjectId];
                                 const gradeInfo = calculateGrade(result.marksObtained, result.gradingSystem) || result;
                                 return (
                                     <StyledTableRow key={`${title}-${index}`}>
@@ -166,12 +180,14 @@ const StudentSubjects = () => {
                                         <StyledTableCell>{result.marksObtained ?? 'N/A'}</StyledTableCell>
                                         <StyledTableCell>{formatGrade(gradeInfo)}</StyledTableCell>
                                         <StyledTableCell>{getPerformanceChip(result)}</StyledTableCell>
+                                        <StyledTableCell>{result.points ?? 0}</StyledTableCell>
+                                        <StyledTableCell>{subjectRank ? `${subjectRank.rank}/${subjectRank.outOf}` : 'N/A'}</StyledTableCell>
                                     </StyledTableRow>
                                 );
                             })
                         ) : (
                             <StyledTableRow>
-                                <StyledTableCell colSpan={4} align="center">
+                                <StyledTableCell colSpan={6} align="center">
                                     No {title.toLowerCase()} available yet.
                                 </StyledTableCell>
                             </StyledTableRow>
@@ -190,8 +206,19 @@ const StudentSubjects = () => {
         return (
             <Box id="report-card-print">
                 <Typography variant="h4" align="center" gutterBottom>
-                    Exam Performance
+                    Student Academic Report
                 </Typography>
+                <Box sx={{ mb: 3, p: 2, border: '1px solid #e0e0e0', borderRadius: 2, display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' }, gap: 1 }}>
+                    <Typography><strong>Student:</strong> {userDetails?.name || 'N/A'}</Typography>
+                    <Typography><strong>Admission No:</strong> {userDetails?.admissionNo || 'N/A'}</Typography>
+                    <Typography><strong>Class / Program:</strong> {userDetails?.sclassName?.sclassName || 'N/A'}</Typography>
+                    <Typography><strong>Roll No:</strong> {userDetails?.rollNum || 'N/A'}</Typography>
+                </Box>
+                <Box sx={{ mb: 3, p: 2, border: '1px solid #e0e0e0', borderRadius: 2, display: 'flex', justifyContent: 'space-around', flexWrap: 'wrap', gap: 2 }}>
+                    <Box><Typography variant="subtitle2" color="textSecondary">Total Marks Scored</Typography><Typography variant="h6">{reportSummary.totalMarks ?? 0}</Typography></Box>
+                    <Box><Typography variant="subtitle2" color="textSecondary">Total Points</Typography><Typography variant="h6">{reportSummary.totalPoints ?? 0}</Typography></Box>
+                    <Box><Typography variant="subtitle2" color="textSecondary">Overall Stream Rank</Typography><Typography variant="h6">{reportSummary.overallRank ? `${reportSummary.overallRank}/${reportSummary.overallOutOf}` : 'N/A'}</Typography></Box>
+                </Box>
                 <Box sx={{ mb: 3, p: 2, border: '1px solid #e0e0e0', borderRadius: 2, display: 'flex', justifyContent: 'space-around', flexWrap: 'wrap', gap: 2 }}>
                     <Box>
                         <Typography variant="subtitle2" color="textSecondary">
@@ -215,6 +242,22 @@ const StudentSubjects = () => {
                 {renderExamTable('CAT Results', catResults)}
                 {renderExamTable('End Term Results', endTermResults)}
 
+                <Box sx={{ mb: 3, height: 260 }}>
+                    <Typography variant="h6" gutterBottom>Performance Trend</Typography>
+                    {trendData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="90%">
+                            <LineChart data={trendData}>
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis dataKey="exam" />
+                                <YAxis domain={[0, 100]} />
+                                <Tooltip />
+                                <Legend />
+                                <Line type="monotone" dataKey="average" name="Average marks" stroke="#1976d2" strokeWidth={3} dot={{ r: 5 }} />
+                            </LineChart>
+                        </ResponsiveContainer>
+                    ) : <Typography color="text.secondary">No trend data available yet.</Typography>}
+                </Box>
+
                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 3 }}>
                     <Typography variant="h6" sx={{ alignSelf: 'center' }}>
                         Performance summary:
@@ -224,6 +267,14 @@ const StudentSubjects = () => {
                     <Chip label={`Approaching: ${summaryCounts['Approaching Expectation']}`} sx={{ backgroundColor: '#FF9800', color: '#fff' }} />
                     <Chip label={`Below: ${summaryCounts['Below Expectation']}`} color="error" />
                     <Chip label={`Unknown: ${summaryCounts.Unknown}`} />
+                </Box>
+                <Box sx={{ mt: 4, pt: 2, borderTop: '1px solid #bdbdbd' }}>
+                    <Typography variant="h6">Class Teacher Comments</Typography>
+                    <Box sx={{ minHeight: 70, borderBottom: '1px solid #757575', mt: 2, mb: 3 }} />
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 4 }}>
+                        <Typography sx={{ flex: 1, borderTop: '1px solid #757575', pt: 1 }}>Class teacher signature</Typography>
+                        <Typography sx={{ flex: 1, borderTop: '1px solid #757575', pt: 1 }}>Date</Typography>
+                    </Box>
                 </Box>
             </Box>
         );
