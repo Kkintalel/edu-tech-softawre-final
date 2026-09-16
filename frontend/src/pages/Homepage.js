@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Container, Grid, Box, Button, Typography, Card, CardContent, List, ListItem, ListItemText } from '@mui/material';
+import { Grid, Button, Typography, Card, CardContent, List, ListItem, ListItemText, IconButton, Menu, MenuItem } from '@mui/material';
+import MenuIcon from '@mui/icons-material/Menu';
 import styled from 'styled-components';
 import { useDispatch } from 'react-redux';
 import Students from '../assets/students.svg';
@@ -10,8 +11,10 @@ import { authLogout } from '../redux/userRelated/userSlice';
 const Homepage = () => {
     const navigate = useNavigate();
     const dispatch = useDispatch();
+    const [menuAnchor, setMenuAnchor] = React.useState(null);
 
     const handleNavigate = (path) => {
+        setMenuAnchor(null);
         dispatch(authLogout());
         localStorage.removeItem('user');
         localStorage.removeItem('currentUser');
@@ -35,6 +38,30 @@ const Homepage = () => {
                     <ActionButton onClick={() => handleNavigate('/Parent/login')}>Parent Portal</ActionButton>
                     <ActionButton onClick={() => handleNavigate('/Studentlogin')}>Student Portal</ActionButton>
                 </Nav>
+                <MobileMenuButton
+                    aria-label="Open navigation menu"
+                    aria-controls={menuAnchor ? 'mobile-navigation' : undefined}
+                    aria-haspopup="true"
+                    aria-expanded={menuAnchor ? 'true' : undefined}
+                    onClick={(event) => setMenuAnchor(event.currentTarget)}
+                >
+                    <MenuIcon />
+                </MobileMenuButton>
+                <Menu
+                    id="mobile-navigation"
+                    anchorEl={menuAnchor}
+                    open={Boolean(menuAnchor)}
+                    onClose={() => setMenuAnchor(null)}
+                    slotProps={{ paper: { sx: { mt: 1, minWidth: 190 } } }}
+                >
+                    {['home', 'about', 'admissions', 'academics', 'student-life', 'news', 'downloads', 'contact'].map((section) => (
+                        <MenuItem key={section} component="a" href={`#${section}`} onClick={() => setMenuAnchor(null)}>
+                            {section === 'student-life' ? 'Student Life' : section === 'news' ? 'News & Events' : section.charAt(0).toUpperCase() + section.slice(1)}
+                        </MenuItem>
+                    ))}
+                    <MenuItem onClick={() => handleNavigate('/Parent/login')}>Parent Portal</MenuItem>
+                    <MenuItem onClick={() => handleNavigate('/Studentlogin')}>Student Portal</MenuItem>
+                </Menu>
             </Header>
 
             <Section id="home">
@@ -181,7 +208,7 @@ const Header = styled.header`
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 18px 32px;
+    padding: 14px clamp(16px, 4vw, 48px);
   gap: 20px;
 `;
 
@@ -196,6 +223,21 @@ const Nav = styled.nav`
   align-items: center;
   gap: 14px;
   flex-wrap: wrap;
+
+    @media (max-width: 1050px) {
+        display: none;
+    }
+`;
+
+const MobileMenuButton = styled(IconButton)`
+    && {
+        display: none;
+        color: #374151;
+
+        @media (max-width: 1050px) {
+            display: inline-flex;
+        }
+    }
 `;
 
 const NavLink = styled.a`
@@ -224,9 +266,13 @@ const ActionButton = styled(Button)`
 `;
 
 const Section = styled.section`
-  padding: 80px 32px;
+    padding: clamp(48px, 7vw, 80px) clamp(16px, 5vw, 48px);
   max-width: 1200px;
   margin: 0 auto;
+
+    &:first-of-type {
+        padding-top: clamp(56px, 9vw, 104px);
+    }
 `;
 
 const SectionHeader = styled(Typography)`
@@ -249,6 +295,14 @@ const ButtonRow = styled.div`
   flex-wrap: wrap;
   gap: 16px;
   margin-top: 24px;
+
+    @media (max-width: 480px) {
+        flex-direction: column;
+
+        & > button {
+            width: 100%;
+        }
+    }
 `;
 
 const FeatureGrid = styled.div`
