@@ -6,7 +6,7 @@ import { getUserDetails } from '../../redux/userRelated/userHandle';
 import CustomBarChart from '../../components/CustomBarChart'
 import { calculateGrade, getGradeColor, formatGrade } from '../../utils/gradingSystem';
 import { calculateOverallAttendancePercentage } from '../../components/attendanceCalculator';
-import { buildPrintBrandingHtml, printBrandingStyles } from '../../utils/printBranding';
+import { buildPrintBrandingHtml, getSchoolBranding, printBrandingStyles } from '../../utils/printBranding';
 import { LineChart, Line, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 
 import InsertChartIcon from '@mui/icons-material/InsertChart';
@@ -54,6 +54,19 @@ const StudentSubjects = () => {
     );
 
     const reportSummary = userDetails?.reportSummary || {};
+    const schoolBranding = getSchoolBranding(currentUser, userDetails?.school);
+    const allResults = Array.isArray(subjectMarks) ? subjectMarks : [];
+    const totalMarksScored = Number(reportSummary.totalMarks ?? allResults.reduce((sum, result) => sum + Number(result.marksObtained || 0), 0));
+    const totalMarksPossible = allResults.length * 100;
+    const averageMarks = allResults.length ? totalMarksScored / allResults.length : 0;
+    const stream = userDetails?.stream || userDetails?.streamName || currentUser?.stream || userDetails?.sclassName?.stream || 'Not set';
+    const session = userDetails?.term || userDetails?.session || userDetails?.academicYear?.yearName || currentUser?.term || currentUser?.session || 'Not set';
+    const nextOpeningDate = userDetails?.nextSchoolOpeningDate || userDetails?.nextOpeningDate || userDetails?.academicYear?.nextOpeningDate || currentUser?.nextSchoolOpeningDate;
+    const formatDate = (value) => {
+        if (!value) return 'Not set';
+        const date = new Date(value);
+        return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString();
+    };
     const getSubjectLabel = (result) => typeof result?.subName === 'string'
         ? result.subName
         : result?.subName?.subName || 'Unknown Subject';
@@ -65,6 +78,12 @@ const StudentSubjects = () => {
             average: marks.length ? Math.round((marks.reduce((sum, mark) => sum + mark, 0) / marks.length) * 10) / 10 : null,
         };
     }).filter((entry) => entry.average !== null), [subjectMarks]);
+
+    const catAverage = trendData.find((entry) => entry.exam === 'CAT')?.average;
+    const endTermAverage = trendData.find((entry) => entry.exam === 'End term')?.average;
+    const performanceChange = catAverage !== undefined && endTermAverage !== undefined
+        ? endTermAverage - catAverage
+        : null;
 
     const feePercentage = useMemo(() => {
         const totalFees = Number(userDetails?.totalFees ?? currentUser?.totalFees ?? 0);
@@ -163,6 +182,8 @@ const StudentSubjects = () => {
                             <StyledTableCell>Subject</StyledTableCell>
                             <StyledTableCell>Marks</StyledTableCell>
                             <StyledTableCell>Grade</StyledTableCell>
+                            <StyledTableCell>Points</StyledTableCell>
+                            <StyledTableCell>Subject Position</StyledTableCell>
                             <StyledTableCell>Performance</StyledTableCell>
                         </StyledTableRow>
                     </TableHead>
@@ -176,12 +197,12 @@ const StudentSubjects = () => {
                                 const gradeInfo = calculateGrade(result.marksObtained, result.gradingSystem) || result;
                                 return (
                                     <StyledTableRow key={`${title}-${index}`}>
-                                        <StyledTableCell>{subjectLabel}</StyledTableCell>
+                                        <StyledTableCell>{subjectLabel}<br /><small>Teacher: {result.subjectTeacher || result.subName?.teacher?.name || 'Not assigned'}</small></StyledTableCell>
                                         <StyledTableCell>{result.marksObtained ?? 'N/A'}</StyledTableCell>
                                         <StyledTableCell>{formatGrade(gradeInfo)}</StyledTableCell>
-                                        <StyledTableCell>{getPerformanceChip(result)}</StyledTableCell>
                                         <StyledTableCell>{result.points ?? 0}</StyledTableCell>
                                         <StyledTableCell>{subjectRank ? `${subjectRank.rank}/${subjectRank.outOf}` : 'N/A'}</StyledTableCell>
+                                        <StyledTableCell>{getPerformanceChip(result)}</StyledTableCell>
                                     </StyledTableRow>
                                 );
                             })
@@ -205,19 +226,29 @@ const StudentSubjects = () => {
 
         return (
             <Box id="report-card-print">
-                <Typography variant="h4" align="center" gutterBottom>
-                    Student Academic Report
-                </Typography>
+                <Box sx={{ mb: 3, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    {schoolBranding.logo && (
+                        <Box component="img" src={schoolBranding.logo} alt={`${schoolBranding.name} logo`} sx={{ maxWidth: 140, maxHeight: 90, objectFit: 'contain', mb: 1 }} />
+                    )}
+                    <Typography variant="h5" sx={{ fontWeight: 700 }}>{schoolBranding.name}</Typography>
+                    <Typography variant="h4" gutterBottom>Student Academic Report</Typography>
+                    {schoolBranding.tagline && <Typography color="text.secondary">{schoolBranding.tagline}</Typography>}
+                </Box>
                 <Box sx={{ mb: 3, p: 2, border: '1px solid #e0e0e0', borderRadius: 2, display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' }, gap: 1 }}>
                     <Typography><strong>Student:</strong> {userDetails?.name || 'N/A'}</Typography>
                     <Typography><strong>Admission No:</strong> {userDetails?.admissionNo || 'N/A'}</Typography>
                     <Typography><strong>Class / Program:</strong> {userDetails?.sclassName?.sclassName || 'N/A'}</Typography>
                     <Typography><strong>Roll No:</strong> {userDetails?.rollNum || 'N/A'}</Typography>
+                    <Typography><strong>Stream:</strong> {stream}</Typography>
+                    <Typography><strong>Term:</strong> {session}</Typography>
+                    <Typography><strong>Class Teacher:</strong> {userDetails?.classTeacherName || 'Not assigned'}</Typography>
                 </Box>
                 <Box sx={{ mb: 3, p: 2, border: '1px solid #e0e0e0', borderRadius: 2, display: 'flex', justifyContent: 'space-around', flexWrap: 'wrap', gap: 2 }}>
                     <Box><Typography variant="subtitle2" color="textSecondary">Total Marks Scored</Typography><Typography variant="h6">{reportSummary.totalMarks ?? 0}</Typography></Box>
+                    <Box><Typography variant="subtitle2" color="textSecondary">Total Marks</Typography><Typography variant="h6">{totalMarksScored}/{totalMarksPossible || 0}</Typography></Box>
+                    <Box><Typography variant="subtitle2" color="textSecondary">Average</Typography><Typography variant="h6">{averageMarks.toFixed(1)}%</Typography></Box>
                     <Box><Typography variant="subtitle2" color="textSecondary">Total Points</Typography><Typography variant="h6">{reportSummary.totalPoints ?? 0}</Typography></Box>
-                    <Box><Typography variant="subtitle2" color="textSecondary">Overall Stream Rank</Typography><Typography variant="h6">{reportSummary.overallRank ? `${reportSummary.overallRank}/${reportSummary.overallOutOf}` : 'N/A'}</Typography></Box>
+                    <Box><Typography variant="subtitle2" color="textSecondary">Overall Position</Typography><Typography variant="h6">{reportSummary.overallRank ? `${reportSummary.overallRank}/${reportSummary.overallOutOf}` : 'N/A'}</Typography></Box>
                 </Box>
                 <Box sx={{ mb: 3, p: 2, border: '1px solid #e0e0e0', borderRadius: 2, display: 'flex', justifyContent: 'space-around', flexWrap: 'wrap', gap: 2 }}>
                     <Box>
@@ -256,6 +287,9 @@ const StudentSubjects = () => {
                             </LineChart>
                         </ResponsiveContainer>
                     ) : <Typography color="text.secondary">No trend data available yet.</Typography>}
+                    <Typography sx={{ mt: 1 }} color={performanceChange === null ? 'text.secondary' : performanceChange >= 0 ? 'success.main' : 'error.main'}>
+                        Performance change: {performanceChange === null ? 'Not enough assessment data' : `${performanceChange >= 0 ? '+' : ''}${performanceChange.toFixed(1)} percentage points`}
+                    </Typography>
                 </Box>
 
                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 3 }}>
@@ -270,7 +304,17 @@ const StudentSubjects = () => {
                 </Box>
                 <Box sx={{ mt: 4, pt: 2, borderTop: '1px solid #bdbdbd' }}>
                     <Typography variant="h6">Class Teacher Comments</Typography>
-                    <Box sx={{ minHeight: 70, borderBottom: '1px solid #757575', mt: 2, mb: 3 }} />
+                    <Typography sx={{ minHeight: 70, mt: 2, mb: 3, p: 1, border: '1px solid #e0e0e0' }}>
+                        {userDetails?.classTeacherRemarks || userDetails?.teacherRemarks || userDetails?.suggestedClassTeacherRemarks || 'No remarks recorded.'}
+                    </Typography>
+                    <Typography variant="h6">Principal Remarks</Typography>
+                    <Typography sx={{ minHeight: 70, mt: 2, mb: 3, p: 1, border: '1px solid #e0e0e0' }}>
+                        {userDetails?.principalRemarks || userDetails?.headTeacherRemarks || userDetails?.suggestedPrincipalRemarks || 'No remarks recorded.'}
+                    </Typography>
+                    <Box sx={{ mb: 3, display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1 }}>
+                        <Typography><strong>Next School Opening:</strong> {formatDate(nextOpeningDate)}</Typography>
+                        <Typography><strong>Term:</strong> {session}</Typography>
+                    </Box>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 4 }}>
                         <Typography sx={{ flex: 1, borderTop: '1px solid #757575', pt: 1 }}>Class teacher signature</Typography>
                         <Typography sx={{ flex: 1, borderTop: '1px solid #757575', pt: 1 }}>Date</Typography>

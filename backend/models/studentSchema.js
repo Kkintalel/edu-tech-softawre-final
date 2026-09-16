@@ -142,6 +142,18 @@ const studentSchema = new mongoose.Schema({
         type: Number,
         default: 0
     },
+    classTeacherRemarks: {
+        type: String,
+        default: ''
+    },
+    principalRemarks: {
+        type: String,
+        default: ''
+    },
+    nextSchoolOpeningDate: {
+        type: Date,
+        default: null
+    },
     feePeriodKey: {
         type: String,
         default: 'initial'
@@ -194,6 +206,11 @@ const studentSchema = new mongoose.Schema({
                 type: String,
                 enum: ['CAT', 'END_TERM'],
                 default: 'CAT'
+            },
+            term: {
+                type: String,
+                trim: true,
+                default: 'Term 1'
             },
             marksObtained: {
                 type: Number,

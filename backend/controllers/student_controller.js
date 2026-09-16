@@ -5,12 +5,84 @@ const Sclass = require('../models/sclassSchema.js');
 const Parent = require('../models/parentSchema.js');
 const Subject = require('../models/subjectSchema.js');
 const Admin = require('../models/adminSchema.js');
+const Teacher = require('../models/teacherSchema.js');
 const Settings = require('../models/settingsSchema.js');
 const { sendFeeConfirmationToParent, sendPaymentReminderToParent, sendSMS } = require('../services/smsService.js');
 const { sendResetPasswordLink, sendEmail, sendPasswordResetEmail } = require('../services/emailService.js');
 const { logAuditAction } = require('../utils/auditLogger');
 const { validateStudentInput, validateStudentUpdateInput, validatePassword, validateEmail } = require('../utils/validation.js');
 const { getAdminIdFromReq, verifySchoolId, verifyEntityBelongsToAdminSchool, enforceSubscriptionStatus } = require('../middleware/schoolAccess.js');
+
+const GRADING_TABLES = {
+    achievement: [
+        { min: 90, grade: 'EE1', level: 'AL8', points: 8, remark: 'Exceeding Expectation' },
+        { min: 75, grade: 'EE2', level: 'AL7', points: 7, remark: 'Exceeding Expectation' },
+        { min: 58, grade: 'ME1', level: 'AL6', points: 6, remark: 'Meeting Expectation' },
+        { min: 41, grade: 'ME2', level: 'AL5', points: 5, remark: 'Meeting Expectation' },
+        { min: 31, grade: 'AE1', level: 'AL4', points: 4, remark: 'Approaching Expectation' },
+        { min: 21, grade: 'AE2', level: 'AL3', points: 3, remark: 'Approaching Expectation' },
+        { min: 11, grade: 'BE1', level: 'AL2', points: 2, remark: 'Below Expectation' },
+        { min: 0, grade: 'BE2', level: 'AL1', points: 1, remark: 'Below Expectation' },
+    ],
+    cdacc: [
+        { min: 80, grade: 'M', level: 'Mastery', points: 4, remark: 'Mastery' },
+        { min: 65, grade: 'P', level: 'Proficient', points: 3, remark: 'Proficient' },
+        { min: 50, grade: 'C', level: 'Competent', points: 2, remark: 'Competent' },
+        { min: 0, grade: 'NYC', level: 'Not Yet Competent', points: 1, remark: 'Not Yet Competent' },
+    ],
+    knec: [
+        { min: 80, grade: '1', level: 'Distinction', points: 1, remark: 'Distinction' },
+        { min: 75, grade: '2', level: 'Distinction', points: 2, remark: 'Distinction' },
+        { min: 70, grade: '3', level: 'Credit', points: 3, remark: 'Credit' },
+        { min: 60, grade: '4', level: 'Credit', points: 4, remark: 'Credit' },
+        { min: 50, grade: '5', level: 'Pass', points: 5, remark: 'Pass' },
+        { min: 40, grade: '6', level: 'Pass', points: 6, remark: 'Pass' },
+        { min: 0, grade: '7', level: 'Fail', points: 7, remark: 'Fail' },
+    ],
+};
+
+const calculateResultGrade = (marks, gradingSystem = 'achievement') => {
+    const numericMarks = Number(marks);
+    const table = GRADING_TABLES[gradingSystem] || GRADING_TABLES.achievement;
+    return table.find((entry, index) => numericMarks >= entry.min && (index === 0 || numericMarks < table[index - 1].min)) || table[table.length - 1];
+};
+
+const getComputedResult = (result) => {
+    const gradingSystem = GRADING_TABLES[result.gradingSystem] ? result.gradingSystem : 'achievement';
+    const grade = calculateResultGrade(result.marksObtained, gradingSystem);
+    return { ...result, gradingSystem, ...grade };
+};
+
+const getCbcReportRemarks = (average, hasResults) => {
+    if (!hasResults) {
+        return {
+            teacher: 'No assessment recorded for this term.',
+            principal: 'Awaiting assessment results for this term.',
+        };
+    }
+    if (average >= 75) {
+        return {
+            teacher: 'Exceeding Expectations (EE) - Excellent performance. Keep up the outstanding work.',
+            principal: 'The learner is exceeding expectations and demonstrates excellent achievement.',
+        };
+    }
+    if (average >= 50) {
+        return {
+            teacher: 'Meeting Expectations (ME) - Good progress and satisfactory achievement.',
+            principal: 'The learner is meeting expectations. Continue with consistent effort.',
+        };
+    }
+    if (average >= 30) {
+        return {
+            teacher: 'Approaching Expectations (AE) - Making progress with continued support.',
+            principal: 'The learner is approaching expectations and should receive additional practice and guidance.',
+        };
+    }
+    return {
+        teacher: 'Below Expectations (BE) - Needs more effort, practice, and close guidance.',
+        principal: 'The learner requires additional support and a focused improvement plan.',
+    };
+};
 
 const getSchoolCode = (admin) => {
     if (!admin?.schoolName) return 'school';
@@ -631,7 +703,7 @@ const getStudentDetail = async (req, res) => {
         let student = await Student.findById(req.params.id)
             .populate("school", "schoolName")
             .populate("sclassName", "sclassName")
-            .populate('examResult.subName', 'subName')
+            .populate({ path: 'examResult.subName', select: 'subName teacher', populate: { path: 'teacher', select: 'name' } })
             .populate('attendance.subName', 'subName')
             .select("-password");
         if (!(await verifyEntityBelongsToAdminSchool(req, res, student))) return;
@@ -644,7 +716,7 @@ const getStudentDetail = async (req, res) => {
             sclassName: student.sclassName?._id || student.sclassName,
         }).select('examResult');
         const totals = classmates.map((classmate) => {
-            const results = classmate.examResult || [];
+            const results = (classmate.examResult || []).map(getComputedResult);
             return {
                 totalMarks: results.reduce((sum, result) => sum + Number(result.marksObtained || 0), 0),
                 totalPoints: results.reduce((sum, result) => sum + Number(result.points || 0), 0),
@@ -670,10 +742,29 @@ const getStudentDetail = async (req, res) => {
         studentObj.reportSummary = {
             totalMarks: studentTotalMarks,
             totalPoints: studentTotalPoints,
+            average: (student.examResult || []).length ? studentTotalMarks / student.examResult.length : 0,
             overallRank: rankFor(studentTotalMarks, 'totalMarks'),
             overallOutOf: totals.length,
             subjectRanks,
         };
+        const automaticRemarks = getCbcReportRemarks(studentObj.reportSummary.average, (student.examResult || []).length > 0);
+        studentObj.suggestedClassTeacherRemarks = automaticRemarks.teacher;
+        studentObj.suggestedPrincipalRemarks = automaticRemarks.principal;
+        const assignedTeachers = await Teacher.find({
+            school: student.school?._id || student.school,
+            teachSclass: student.sclassName?._id || student.sclassName,
+        }).select('name teachSubject teachSubjects');
+        const subjectTeacherMap = new Map();
+        assignedTeachers.forEach((teacher) => {
+            [teacher.teachSubject, ...(teacher.teachSubjects || [])].filter(Boolean).forEach((subjectId) => {
+                if (!subjectTeacherMap.has(String(subjectId))) subjectTeacherMap.set(String(subjectId), teacher.name || 'Not assigned');
+            });
+        });
+        studentObj.classTeacherName = assignedTeachers[0]?.name || 'Not assigned';
+        studentObj.examResult = (studentObj.examResult || []).map((result) => ({
+            ...getComputedResult(result),
+            subjectTeacher: result.subName?.teacher?.name || subjectTeacherMap.get(String(result.subName?._id || result.subName)) || 'Not assigned',
+        }));
         res.send(studentObj);
     } catch (err) {
         res.status(500).json(err);
@@ -1311,7 +1402,7 @@ const sendPaymentReminder = async (req, res) => {
 }
 
 const updateExamResult = async (req, res) => {
-    const { subName, marksObtained, examType, grade, level, points, remark, gradingSystem, changeReason } = req.body;
+    const { subName, marksObtained, examType, term, gradingSystem, changeReason } = req.body;
 
     try {
         if (!subName) {
@@ -1328,6 +1419,10 @@ const updateExamResult = async (req, res) => {
             return res.status(400).send({ message: 'Invalid exam type' });
         }
 
+        const normalizedGradingSystem = GRADING_TABLES[gradingSystem] ? gradingSystem : 'achievement';
+        const normalizedTerm = (term || 'Term 1').toString().trim() || 'Term 1';
+        const computedGrade = calculateResultGrade(numericMarks, normalizedGradingSystem);
+
         const student = await Student.findById(req.params.id).select('_id name school examResult');
         if (!(await verifyEntityBelongsToAdminSchool(req, res, student))) return;
 
@@ -1341,15 +1436,15 @@ const updateExamResult = async (req, res) => {
         const previousMark = existingResult?.marksObtained;
 
         const updateFields = {
-            'examResult.$[elem].marksObtained': marksObtained,
+            'examResult.$[elem].marksObtained': numericMarks,
             'examResult.$[elem].examType': normalizedExamType,
+            'examResult.$[elem].term': normalizedTerm,
+            'examResult.$[elem].gradingSystem': normalizedGradingSystem,
+            'examResult.$[elem].grade': computedGrade.grade,
+            'examResult.$[elem].level': computedGrade.level,
+            'examResult.$[elem].points': computedGrade.points,
+            'examResult.$[elem].remark': computedGrade.remark,
         };
-
-        if (grade !== undefined) updateFields['examResult.$[elem].grade'] = grade;
-        if (level !== undefined) updateFields['examResult.$[elem].level'] = level;
-        if (points !== undefined) updateFields['examResult.$[elem].points'] = points;
-        if (remark !== undefined) updateFields['examResult.$[elem].remark'] = remark;
-        if (gradingSystem !== undefined) updateFields['examResult.$[elem].gradingSystem'] = gradingSystem;
 
         const updateResult = await Student.updateOne(
             {
@@ -1377,8 +1472,8 @@ const updateExamResult = async (req, res) => {
                     entityId: student._id,
                         entityName: `${student.name || student._id} ${subject?.subName || 'subject'} ${normalizedExamType} mark`,
                     changesBefore: { marksObtained: previousMark },
-                    changesAfter: { marksObtained, grade, level, points, remark },
-                    changedFields: ['marksObtained', 'grade', 'level', 'points', 'remark'],
+                    changesAfter: { marksObtained: numericMarks, ...computedGrade, gradingSystem: normalizedGradingSystem },
+                    changedFields: ['marksObtained', 'grade', 'level', 'points', 'remark', 'gradingSystem'],
                     ipAddress: req.clientIP || req.ip || 'Unknown',
                     userAgent: req.get('user-agent') || '',
                     status: 'warning',
@@ -1399,12 +1494,14 @@ const updateExamResult = async (req, res) => {
             return res.send(updatedStudent);
         }
 
-        const newEntry = { subName, examType: normalizedExamType, marksObtained: numericMarks };
-        if (grade !== undefined) newEntry.grade = grade;
-        if (level !== undefined) newEntry.level = level;
-        if (points !== undefined) newEntry.points = points;
-        if (remark !== undefined) newEntry.remark = remark;
-        if (gradingSystem !== undefined) newEntry.gradingSystem = gradingSystem;
+        const newEntry = {
+            subName,
+            examType: normalizedExamType,
+            term: normalizedTerm,
+            marksObtained: numericMarks,
+            gradingSystem: normalizedGradingSystem,
+            ...computedGrade,
+        };
 
         await Student.updateOne(
             { _id: req.params.id },
@@ -1581,6 +1678,7 @@ const resetStudentPasswordByAdmin = async (req, res) => {
 
 const getAcademicReport = async (req, res) => {
     try {
+    const requestedTerm = (req.query.term || 'Term 1').toString().trim() || 'Term 1';
         const requestedSchoolId = req.params.schoolId;
         const requesterId = getAdminIdFromReq(req);
         const requester = requesterId ? await Admin.findById(requesterId).select('role school') : null;
@@ -1595,20 +1693,103 @@ const getAcademicReport = async (req, res) => {
         if (!(await verifySchoolId(req, res, schoolId || requesterId))) return;
 
         const students = await Student.find(schoolId ? { school: schoolId } : {})
-            .populate('examResult.subName', 'subName')
+            .populate({ path: 'examResult.subName', select: 'subName teacher', populate: { path: 'teacher', select: 'name' } })
             .populate('sclassName', 'sclassName');
+        const subjectTeacherMap = new Map();
+        const reportTeachers = await Teacher.find(schoolId ? { school: schoolId } : {})
+            .select('name teachSubject teachSubjects teachSclass');
+        reportTeachers.forEach((teacher) => {
+            const subjectIds = [teacher.teachSubject, ...(teacher.teachSubjects || [])].filter(Boolean);
+            subjectIds.forEach((subjectId) => {
+                if (!subjectTeacherMap.has(String(subjectId))) subjectTeacherMap.set(String(subjectId), teacher.name || 'Not assigned');
+            });
+        });
 
-        const report = students.map(student => ({
-            id: student._id,
-            name: student.name,
-            rollNum: student.rollNum,
-            class: student.sclassName?.sclassName || student.sclassName || 'N/A',
-            results: student.examResult.map(result => ({
-                subject: result.subName?.subName || 'Unknown',
-                examType: result.examType || 'CAT',
-                marksObtained: result.marksObtained
-            }))
+        const getTermResults = (student) => (student.examResult || [])
+            .filter((result) => (result.term || 'Term 1') === requestedTerm)
+            .map(getComputedResult);
+        const totals = students.map((student) => ({
+            id: String(student._id),
+            totalMarks: getTermResults(student).reduce((sum, result) => sum + Number(result.marksObtained || 0), 0),
+            totalPoints: getTermResults(student).reduce((sum, result) => sum + Number(result.points || 0), 0),
         }));
+        const rankFor = (value, key) => 1 + totals.filter((entry) => entry[key] > value).length;
+        const report = students.map(student => {
+            const studentId = String(student._id);
+            const studentTotal = totals.find((entry) => entry.id === studentId) || { totalMarks: 0, totalPoints: 0 };
+            const termResults = getTermResults(student);
+            const termAverage = termResults.length ? studentTotal.totalMarks / termResults.length : 0;
+            const automaticRemarks = getCbcReportRemarks(termAverage, termResults.length > 0);
+            const subjectTotals = {};
+            getTermResults(student).forEach((result) => {
+                const subjectId = String(result.subName?._id || result.subName);
+                subjectTotals[subjectId] = (subjectTotals[subjectId] || 0) + Number(result.marksObtained || 0);
+            });
+            const subjectRanks = {};
+            Object.entries(subjectTotals).forEach(([subjectId, subjectTotal]) => {
+                const classSubjectTotals = students.map((classmate) => getTermResults(classmate)
+                    .filter((result) => String(result.subName?._id || result.subName) === subjectId)
+                    .reduce((sum, result) => sum + Number(result.marksObtained || 0), 0));
+                subjectRanks[subjectId] = {
+                    rank: 1 + classSubjectTotals.filter((value) => value > subjectTotal).length,
+                    outOf: classSubjectTotals.length,
+                };
+            });
+            return {
+                id: student._id,
+                name: student.name,
+                rollNum: student.rollNum,
+                admissionNo: student.admissionNo,
+                class: student.sclassName?.sclassName || student.sclassName || 'N/A',
+                stream: student.stream || student.streamName || '',
+                session: student.term || student.session || student.academicYear || '',
+                nextSchoolOpeningDate: student.nextSchoolOpeningDate || student.nextOpeningDate || null,
+                classTeacherRemarks: student.classTeacherRemarks || student.teacherRemarks || '',
+                principalRemarks: student.principalRemarks || student.headTeacherRemarks || '',
+                suggestedClassTeacherRemarks: automaticRemarks.teacher,
+                suggestedPrincipalRemarks: automaticRemarks.principal,
+                reportSummary: {
+                    totalMarks: studentTotal.totalMarks,
+                    totalMarksPossible: (student.examResult || []).length * 100,
+                    average: termAverage,
+                    totalPoints: studentTotal.totalPoints,
+                    overallRank: rankFor(studentTotal.totalMarks, 'totalMarks'),
+                    overallOutOf: totals.length,
+                    subjectRanks,
+                },
+                results: getTermResults(student).map(result => {
+                    const computedResult = getComputedResult(result);
+                    return {
+                    subject: result.subName?.subName || 'Unknown',
+                    subjectId: String(result.subName?._id || result.subName),
+                    subjectTeacher: result.subName?.teacher?.name || subjectTeacherMap.get(String(result.subName?._id || result.subName)) || 'Not assigned',
+                    examType: result.examType || 'CAT',
+                    marksObtained: result.marksObtained,
+                    grade: computedResult.grade,
+                    level: computedResult.level,
+                    points: computedResult.points,
+                    remark: computedResult.remark,
+                    gradingSystem: computedResult.gradingSystem,
+                    term: requestedTerm,
+                    };
+                })
+            };
+        });
+
+        const classTeacherMap = new Map();
+        const classIds = [...new Set(students.map((student) => String(student.sclassName?._id || student.sclassName)).filter(Boolean))];
+        const classTeachers = await Teacher.find({
+            ...(schoolId ? { school: schoolId } : {}),
+            teachSclass: { $in: classIds },
+        }).select('name teachSclass');
+        classTeachers.forEach((teacher) => {
+            const classId = String(teacher.teachSclass);
+            if (!classTeacherMap.has(classId)) classTeacherMap.set(classId, teacher.name || 'Not assigned');
+        });
+        report.forEach((studentReport, index) => {
+            const student = students[index];
+            studentReport.classTeacher = classTeacherMap.get(String(student.sclassName?._id || student.sclassName)) || 'Not assigned';
+        });
 
         res.send({ totalStudents: students.length, academicReport: report });
     } catch (error) {

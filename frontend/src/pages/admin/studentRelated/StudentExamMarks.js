@@ -28,6 +28,7 @@ const StudentExamMarks = ({ situation }) => {
     const [subjectName, setSubjectName] = useState("");
     const [chosenSubName, setChosenSubName] = useState("");
     const [examType, setExamType] = useState('CAT');
+    const [term, setTerm] = useState('Term 1');
     const [marksObtained, setMarksObtained] = useState("");
     const [gradeInfo, setGradeInfo] = useState(null);
     const [gradingSystem, setGradingSystem] = useState('achievement');
@@ -131,7 +132,7 @@ const StudentExamMarks = ({ situation }) => {
 
         setLoader(true)
         
-        const fields = { subName: chosenSubName, examType, marksObtained: numericMarks, gradingSystem, changeReason };
+        const fields = { subName: chosenSubName, examType, term, marksObtained: numericMarks, gradingSystem, changeReason };
         if (gradeInfo) {
             fields.grade = gradeInfo.grade;
             fields.level = gradeInfo.level;
@@ -252,6 +253,14 @@ const StudentExamMarks = ({ situation }) => {
                                                     {item.label}
                                                 </MenuItem>
                                             ))}
+                                        </Select>
+                                    </FormControl>
+                                    <FormControl fullWidth>
+                                        <InputLabel id="term-label">Term</InputLabel>
+                                        <Select labelId="term-label" value={term} label="Term" onChange={(event) => setTerm(event.target.value)}>
+                                            <MenuItem value="Term 1">Term 1</MenuItem>
+                                            <MenuItem value="Term 2">Term 2</MenuItem>
+                                            <MenuItem value="Term 3">Term 3</MenuItem>
                                         </Select>
                                     </FormControl>
                                     <FormControl>

@@ -106,8 +106,7 @@ app.get('/health', (req, res) => {
     const states = ['disconnected', 'connected', 'connecting', 'disconnecting'];
     res.json({
         status: 'ok',
-        db: states[dbState] || 'unknown',
-        mongoUri: MONGO_URI
+        db: states[dbState] || 'unknown'
     });
 })
 
