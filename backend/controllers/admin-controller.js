@@ -934,7 +934,8 @@ const adminLogIn = async (req, res) => {
         const safeAdmin = admin.toObject ? admin.toObject() : { ...admin };
         return res.send({ ...safeAdmin, admin: safeAdmin, token: issueAdminToken(safeAdmin) });
     } catch (err) {
-        res.status(500).json(err);
+        console.error('Admin login failed:', err.message || err);
+        res.status(500).json({ message: 'Login failed due to a server error. Please try again.' });
     }
 };
 
