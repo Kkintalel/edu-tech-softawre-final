@@ -5,6 +5,7 @@ const Admin = require('../models/adminSchema.js');
 const Subject = require('../models/subjectSchema.js');
 const School = require('../models/schoolSchema.js');
 const { sendResetPasswordLink, sendPasswordResetEmail, sendEmail } = require('../services/emailService.js');
+const { createBankTransfer } = require('../services/bankService.js');
 const { sendSMS } = require('../services/smsService.js');
 const { logAuditAction } = require('../utils/auditLogger');
 const { validateTeacherInput, validateTeacherUpdateInput, validatePassword } = require('../utils/validation.js');
@@ -624,6 +625,23 @@ const approveSalaryPayment = async (req, res) => {
         const approverId = approvedBy || getAdminIdFromReq(req);
         const paymentAmount = Number(payment.amount) || 0;
 
+        let bankTransfer = null;
+        if (payment.method === 'Bank Transfer') {
+            bankTransfer = await createBankTransfer({
+                amount: paymentAmount,
+                bankName: payment.bankName,
+                bankAccount: payment.bankAccount,
+                accountHolderName: payment.accountHolderName,
+                reference: payment.reference,
+            });
+            if (!bankTransfer.success) {
+                return res.status(502).send({ message: bankTransfer.error });
+            }
+            payment.bankTransactionId = bankTransfer.transactionId;
+            payment.bankTransferStatus = bankTransfer.status;
+            payment.bankProvider = bankTransfer.provider;
+        }
+
         payment.status = 'Paid';
         payment.approvalStatus = 'Approved';
         payment.approvedBy = approverId;
@@ -665,6 +683,7 @@ const approveSalaryPayment = async (req, res) => {
             message: 'Salary payment approved successfully and school account has been debited',
             teacher,
             schoolBalance: school ? school.accountBalance : null,
+            bankTransfer,
         });
     } catch (error) {
         console.error('Error approving salary payment:', error);

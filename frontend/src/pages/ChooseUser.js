@@ -115,19 +115,6 @@ const ChooseUser = ({ visitor }) => {
       <Container>
         <Grid container spacing={2} justifyContent="center">
           <Grid item xs={12} sm={6} md={4}>
-            <div onClick={() => navigateHandler("Admin")}>
-              <StyledPaper elevation={3}>
-                <Box mb={2}>
-                  <AccountCircle fontSize="large" />
-                </Box>
-                <StyledTypography>
-                  Admin
-                </StyledTypography>
-                Login as an administrator to access the dashboard to manage app data.
-              </StyledPaper>
-            </div>
-          </Grid>
-          <Grid item xs={12} sm={6} md={4}>
             <StyledPaper elevation={3}>
               <div onClick={() => navigateHandler("Student")}>
                 <Box mb={2}>
@@ -192,36 +179,6 @@ const ChooseUser = ({ visitor }) => {
               </div>
             </StyledPaper>
           </Grid>
-          {visitor !== 'guest' && (
-            <>
-              <Grid item xs={12} sm={6} md={4}>
-                <StyledPaper elevation={3}>
-                  <div onClick={() => navigateHandler("SuperAdmin")}> 
-                    <Box mb={2}>
-                      <AccountCircle fontSize="large" />
-                    </Box>
-                    <StyledTypography>
-                      Super Admin
-                    </StyledTypography>
-                    Login as a super admin to approve schools and manage system-wide admin onboarding.
-                  </div>
-                </StyledPaper>
-              </Grid>
-              <Grid item xs={12} sm={6} md={4}>
-                <StyledPaper elevation={3}>
-                  <div onClick={() => navigate('/SuperAdminregister')}>
-                    <Box mb={2}>
-                      <AccountCircle fontSize="large" />
-                    </Box>
-                    <StyledTypography>
-                      Create Super Admin
-                    </StyledTypography>
-                    Register a new Super Admin account for system-level approvals.
-                  </div>
-                </StyledPaper>
-              </Grid>
-            </>
-          )}
         </Grid>
       </Container>
       <Backdrop

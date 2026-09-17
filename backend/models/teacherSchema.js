@@ -77,6 +77,9 @@ const teacherSchema = new mongoose.Schema({
             bankName: { type: String, default: '' },
             bankAccount: { type: String, default: '' },
             accountHolderName: { type: String, default: '' },
+            bankTransactionId: { type: String, default: '' },
+            bankTransferStatus: { type: String, default: '' },
+            bankProvider: { type: String, default: '' },
             paidBy: {
                 type: mongoose.Schema.Types.ObjectId,
                 ref: 'admin',

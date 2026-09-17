@@ -191,7 +191,7 @@ const adminSchema = new mongoose.Schema({
     },
     schoolName: {
         type: String,
-        required: true,
+        default: '',
         index: false
     },
     resetPasswordToken: {

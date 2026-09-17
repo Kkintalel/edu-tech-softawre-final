@@ -8,7 +8,7 @@ const CommunicationSettings = () => {
   const [settings, setSettings] = useState({
     emailSettings: {
       emailProvider: 'Gmail',
-      senderEmail: '',
+      senderEmail: 'edutech@edutechnologies.ac.ke',
       senderName: ''
     },
     notificationSettings: {
@@ -37,7 +37,13 @@ const CommunicationSettings = () => {
         headers: { 'x-admin-id': currentUser?._id }
       });
       if (response.data.settings) {
-        setSettings(response.data.settings);
+        setSettings({
+          ...response.data.settings,
+          emailSettings: {
+            senderEmail: 'edutech@edutechnologies.ac.ke',
+            ...response.data.settings.emailSettings
+          }
+        });
       }
     } catch (error) {
       setMessage('Error loading settings');

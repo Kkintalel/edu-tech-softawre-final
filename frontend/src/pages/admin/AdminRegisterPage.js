@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { Grid, Box, Typography, Paper, Checkbox, FormControlLabel, TextField, CssBaseline, IconButton, InputAdornment, CircularProgress} from '@mui/material';
 import { createTheme, ThemeProvider } from '@mui/material/styles';
+import GlobalStyles from '@mui/material/GlobalStyles';
 import { Visibility, VisibilityOff } from '@mui/icons-material';
 import bgpic from "../../assets/designlogin.jpg"
 import { LightPurpleButton } from '../../components/buttonStyles';
@@ -107,7 +108,14 @@ const AdminRegisterPage = ({ role = "Admin" }) => {
 
     return (
         <ThemeProvider theme={defaultTheme}>
-            <Grid container component="main" sx={{ height: '100vh' }}>
+            <GlobalStyles styles={{
+                'html, body, #root': {
+                    minHeight: '100%',
+                    overflowX: 'auto',
+                    overflowY: 'auto',
+                },
+            }} />
+            <Grid container component="main" sx={{ minHeight: '100vh', width: '100%', overflowX: 'auto' }}>
                 <CssBaseline />
                 <Grid item xs={12} sm={8} md={5} component={Paper} elevation={6} square>
                     <Box

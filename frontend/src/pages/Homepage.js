@@ -74,9 +74,6 @@ const Homepage = () => {
                             Manage school operations from one place. Admissions, academics, student life, and parent/student portals are all available in a single dashboard.
                         </Typography>
                         <ButtonRow>
-                            <LightPurpleButton variant="contained" onClick={() => handleNavigate('/choose')}>
-                                Admin Login
-                            </LightPurpleButton>
                             <Button variant="outlined" onClick={() => handleNavigate('/chooseasguest')}>
                                 Guest Login
                             </Button>

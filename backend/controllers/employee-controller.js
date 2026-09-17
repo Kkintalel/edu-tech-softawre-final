@@ -6,6 +6,7 @@ const { validateEmployee } = require('../utils/validation');
 const { logAuditAction } = require('../utils/auditLogger');
 const { sendEmail } = require('../services/emailService');
 const { sendSMS } = require('../services/smsService');
+const { createBankTransfer } = require('../services/bankService');
 const Message = require('../models/messageSchema');
 const { sanitizeEmployeePayload } = require('../utils/employeePayload');
 
@@ -422,6 +423,23 @@ const approveEmployeePayment = async (req, res) => {
             return res.status(400).json({ message: 'Payment amount must be greater than zero' });
         }
 
+        let bankTransfer = null;
+        if (payment.paymentMethod === 'Bank Transfer') {
+            bankTransfer = await createBankTransfer({
+                amount: paymentAmount,
+                bankName: payment.bankName,
+                bankAccount: payment.bankAccount,
+                accountHolderName: payment.accountHolderName,
+                reference: payment.referenceNumber,
+            });
+            if (!bankTransfer.success) {
+                return res.status(502).json({ message: bankTransfer.error });
+            }
+            payment.bankTransactionId = bankTransfer.transactionId;
+            payment.bankTransferStatus = bankTransfer.status;
+            payment.bankProvider = bankTransfer.provider;
+        }
+
         const schoolAccess = await ensureSchoolAccessible(employee.school, req.user);
         if (!schoolAccess.allowed) {
             return res.status(403).json({ message: schoolAccess.message });
@@ -468,6 +486,7 @@ const approveEmployeePayment = async (req, res) => {
             employee,
             schoolBalance: school ? school.accountBalance : null,
             employeeBalance: employee.accountBalance,
+            bankTransfer,
         });
     } catch (err) {
         console.error('Approve Employee Payment Error:', err);

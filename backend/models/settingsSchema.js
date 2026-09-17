@@ -151,7 +151,10 @@ const settingsSchema = new mongoose.Schema({
             enum: ['Gmail', 'SendGrid', 'AWS_SES', 'Custom'],
             default: 'Gmail',
         },
-        senderEmail: String,
+        senderEmail: {
+            type: String,
+            default: 'edutech@edutechnologies.ac.ke',
+        },
         senderName: String,
         emailPassword: String, // Encrypted in actual implementation
         emailAPIKey: String, // Encrypted in actual implementation

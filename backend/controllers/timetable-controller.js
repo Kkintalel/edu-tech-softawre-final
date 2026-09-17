@@ -13,7 +13,28 @@ const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 const PERIODS = [1, 2, 3, 4, 5, 6];
 const MAX_SLOTS = DAYS.length * PERIODS.length;
 
-const buildBalancedSchedule = (subjects) => {
+const slotKey = (day, period) => `${day}-${period}`;
+const subjectKey = (name) => String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+const buildOccupiedSlots = (timetables = [], excludeClassId = null) => {
+    const occupiedTeachers = new Set();
+    const occupiedSubjects = new Set();
+
+    timetables.forEach((timetable) => {
+        if (excludeClassId && timetable.sclass?.toString() === excludeClassId.toString()) return;
+        (timetable.schedule || []).forEach((entry) => {
+            const key = slotKey(entry.day, entry.period);
+            if (entry.teacher) occupiedTeachers.add(`${key}-${entry.teacher.toString()}`);
+            if (entry.subjectName && entry.subjectName !== 'Free Period') {
+                occupiedSubjects.add(`${key}-${subjectKey(entry.subjectName)}`);
+            }
+        });
+    });
+
+    return { occupiedTeachers, occupiedSubjects };
+};
+
+const buildBalancedSchedule = (subjects, occupiedSlots = {}) => {
     const normalizedSubjects = subjects.map((subject) => ({
         subject,
         remaining: Math.max(0, Math.round(subject.sessions || 0)),
@@ -27,21 +48,19 @@ const buildBalancedSchedule = (subjects) => {
     }
 
     const schedule = [];
-    const teacherDayAssignments = {}; // { day: Set(teacherId) }
-
-    for (const day of DAYS) {
-        teacherDayAssignments[day] = new Set();
-    }
-
     for (const day of DAYS) {
         for (const period of PERIODS) {
             const available = normalizedSubjects
                 .filter((item) => item.remaining > 0)
-                .filter((item) => item.teacherId === null || !teacherDayAssignments[day].has(item.teacherId));
+                .filter((item) => !item.teacherId || !occupiedSlots.occupiedTeachers?.has(`${slotKey(day, period)}-${item.teacherId}`))
+                .filter((item) => !occupiedSlots.occupiedSubjects?.has(`${slotKey(day, period)}-${subjectKey(item.subject.subName)}`));
 
-            const candidates = available.length > 0 ? available : normalizedSubjects.filter((item) => item.remaining > 0);
+            const candidates = available;
 
             if (candidates.length === 0) {
+                if (normalizedSubjects.some((item) => item.remaining > 0)) {
+                    throw new Error(`Unable to schedule all subjects without a teacher or subject collision at ${day}, period ${period}.`);
+                }
                 schedule.push({
                     day,
                     period,
@@ -63,9 +82,6 @@ const buildBalancedSchedule = (subjects) => {
 
             const chosen = candidates[0];
             chosen.remaining -= 1;
-            if (chosen.teacherId) {
-                teacherDayAssignments[day].add(chosen.teacherId);
-            }
 
             schedule.push({
                 day,
@@ -81,7 +97,7 @@ const buildBalancedSchedule = (subjects) => {
     return schedule;
 };
 
-const validateTimetableSchedule = async (schedule, classId) => {
+const validateTimetableSchedule = async (schedule, classId, schoolId) => {
     if (!Array.isArray(schedule) || schedule.length !== MAX_SLOTS) {
         return { valid: false, message: `Schedule must have exactly ${MAX_SLOTS} slots.` };
     }
@@ -93,8 +109,9 @@ const validateTimetableSchedule = async (schedule, classId) => {
     }, {});
 
     const subjectCounts = {};
-    const teacherDayMap = {};
     const slotKeys = new Set();
+    const existingTimetables = await Timetable.find({ school: schoolId, sclass: { $ne: classId } }).lean();
+    const occupiedSlots = buildOccupiedSlots(existingTimetables);
 
     for (const entry of schedule) {
         if (!entry || typeof entry !== 'object') {
@@ -135,11 +152,14 @@ const validateTimetableSchedule = async (schedule, classId) => {
 
             if (teacher) {
                 const teacherId = teacher.toString();
-                teacherDayMap[day] = teacherDayMap[day] || new Set();
-                if (teacherDayMap[day].has(teacherId)) {
-                    return { valid: false, message: `Teacher is assigned to more than one period on ${day}.` };
+                if (occupiedSlots.occupiedTeachers.has(`${slotKey(day, period)}-${teacherId}`)) {
+                    return { valid: false, message: `Teacher is already assigned at ${day}, period ${period} in another class.` };
                 }
-                teacherDayMap[day].add(teacherId);
+            }
+
+            const subjectNameKey = subjectKey(existing.subName);
+            if (occupiedSlots.occupiedSubjects.has(`${slotKey(day, period)}-${subjectNameKey}`)) {
+                return { valid: false, message: `Subject ${existing.subName} is already scheduled at ${day}, period ${period} in another class.` };
             }
         }
     }
@@ -223,7 +243,8 @@ const generateTimetableForClass = async (req, res) => {
             return res.status(400).send({ message: 'No subjects found for this class' });
         }
 
-        const schedule = buildBalancedSchedule(subjects);
+        const existingTimetables = await Timetable.find({ school: sclass.school, sclass: { $ne: classId } }).lean();
+        const schedule = buildBalancedSchedule(subjects, buildOccupiedSlots(existingTimetables, classId));
 
         let timetable = await Timetable.findOne({ sclass: classId, school: sclass.school });
         const historyEntry = buildHistoryEntry('GENERATED', admin._id, admin.role, timetable ? timetable.toObject() : null, schedule, 'Auto-generated timetable');
@@ -298,7 +319,7 @@ const updateTimetableForClass = async (req, res) => {
         if (!(await verifyEntityBelongsToAdminSchool(req, res, sclass))) return;
 
         const schedule = req.body.schedule;
-        const validationResult = await validateTimetableSchedule(schedule, classId);
+        const validationResult = await validateTimetableSchedule(schedule, classId, sclass.school);
         if (!validationResult.valid) {
             return res.status(400).send({ message: validationResult.message });
         }

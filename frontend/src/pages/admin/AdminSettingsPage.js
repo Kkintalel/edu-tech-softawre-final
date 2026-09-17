@@ -69,7 +69,10 @@ const AdminSettingsPage = () => {
             setSettings(fetchedSettings);
             setFormData({
                 branding: Object.assign({}, fetchedSettings.branding || {}, { schoolLogo: fetchedSettings.branding?.schoolLogo && (fetchedSettings.branding.schoolLogo.startsWith('http') ? fetchedSettings.branding.schoolLogo : `${API_BASE_URL}${fetchedSettings.branding.schoolLogo}`) }),
-                emailSettings: fetchedSettings.emailSettings || {},
+                emailSettings: {
+                    senderEmail: 'edutech@edutechnologies.ac.ke',
+                    ...(fetchedSettings.emailSettings || {}),
+                },
                 smsSettings: fetchedSettings.smsSettings || {},
                 mpesaSettings: fetchedSettings.mpesaSettings || {},
                 bankIntegration: fetchedSettings.bankIntegration || {},

@@ -239,6 +239,9 @@ const employeeSchema = new mongoose.Schema({
             netAmount: Number,
             paymentMethod: String,
             referenceNumber: String,
+            bankTransactionId: { type: String, default: '' },
+            bankTransferStatus: { type: String, default: '' },
+            bankProvider: { type: String, default: '' },
             status: {
                 type: String,
                 enum: ['Pending', 'Processed', 'Paid', 'Failed', 'Reversed'],
