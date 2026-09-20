@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSelector } from 'react-redux';
 import axios from 'axios';
 import { Box, Container, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, CircularProgress, Alert } from '@mui/material';
+import { getTimetableTime } from '../../utils/timetableSlots';
 
 const API_BASE_URL = process.env.REACT_APP_BASE_URL || 'http://localhost:5000';
 
@@ -56,6 +57,7 @@ const TeacherTimetable = () => {
                         <TableHead>
                             <TableRow>
                                 <TableCell>Day</TableCell>
+                                <TableCell>Time</TableCell>
                                 <TableCell>Period</TableCell>
                                 <TableCell>Subject</TableCell>
                                 <TableCell>Teacher</TableCell>
@@ -71,6 +73,7 @@ const TeacherTimetable = () => {
                                 .map((entry) => (
                                     <TableRow key={`${entry.day}-${entry.period}`}>
                                         <TableCell>{entry.day}</TableCell>
+                                        <TableCell>{getTimetableTime(entry)}</TableCell>
                                         <TableCell>{entry.period}</TableCell>
                                         <TableCell>{entry.subjectName || 'Free Period'}</TableCell>
                                         <TableCell>{entry.teacherName || 'Unassigned'}</TableCell>

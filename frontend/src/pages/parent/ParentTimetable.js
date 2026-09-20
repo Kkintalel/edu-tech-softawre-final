@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Box, Container, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, CircularProgress, Alert, Button } from '@mui/material';
 import axios from 'axios';
+import { getTimetableTime } from '../../utils/timetableSlots';
 
 const API_BASE_URL = process.env.REACT_APP_BASE_URL || 'http://localhost:5000';
 
@@ -70,6 +71,7 @@ const ParentTimetable = () => {
                         <TableHead>
                             <TableRow>
                                 <TableCell>Day</TableCell>
+                                <TableCell>Time</TableCell>
                                 <TableCell>Period</TableCell>
                                 <TableCell>Subject</TableCell>
                                 <TableCell>Teacher</TableCell>
@@ -85,6 +87,7 @@ const ParentTimetable = () => {
                                 .map((entry) => (
                                     <TableRow key={`${entry.day}-${entry.period}`}>
                                         <TableCell>{entry.day}</TableCell>
+                                        <TableCell>{getTimetableTime(entry)}</TableCell>
                                         <TableCell>{entry.period}</TableCell>
                                         <TableCell>{entry.subjectName || 'Free Period'}</TableCell>
                                         <TableCell>{entry.teacherName || 'Unassigned'}</TableCell>

@@ -10,8 +10,22 @@ const { sendEmail } = require('../services/emailService.js');
 const { sendSMS } = require('../services/smsService.js');
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
-const PERIODS = [1, 2, 3, 4, 5, 6];
-const MAX_SLOTS = DAYS.length * PERIODS.length;
+const TIMETABLE_SLOTS = [
+    { period: 1, startTime: '08:00', endTime: '08:45', slotType: 'lesson', label: '' },
+    { period: 2, startTime: '08:45', endTime: '09:30', slotType: 'lesson', label: '' },
+    { period: 3, startTime: '09:30', endTime: '09:50', slotType: 'break', label: 'Break' },
+    { period: 4, startTime: '09:50', endTime: '10:35', slotType: 'lesson', label: '' },
+    { period: 5, startTime: '10:35', endTime: '11:20', slotType: 'lesson', label: '' },
+    { period: 6, startTime: '11:20', endTime: '12:05', slotType: 'lesson', label: '' },
+    { period: 7, startTime: '12:05', endTime: '13:00', slotType: 'lunch', label: 'Lunch' },
+    { period: 8, startTime: '13:00', endTime: '13:45', slotType: 'lesson', label: '' },
+    { period: 9, startTime: '13:45', endTime: '14:30', slotType: 'lesson', label: '' },
+    { period: 10, startTime: '14:30', endTime: '15:15', slotType: 'lesson', label: '' },
+    { period: 11, startTime: '15:15', endTime: '16:00', slotType: 'lesson', label: '' },
+];
+const PERIODS = TIMETABLE_SLOTS.map((slot) => slot.period);
+const MAX_SLOTS = TIMETABLE_SLOTS.length;
+const teachingSlots = TIMETABLE_SLOTS.filter((slot) => slot.slotType === 'lesson');
 
 const slotKey = (day, period) => `${day}-${period}`;
 const subjectKey = (name) => String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -43,13 +57,19 @@ const buildBalancedSchedule = (subjects, occupiedSlots = {}) => {
     })).filter((item) => item.remaining > 0);
 
     const totalSessions = normalizedSubjects.reduce((sum, item) => sum + item.remaining, 0);
-    if (totalSessions > MAX_SLOTS) {
-        throw new Error(`Requested subject sessions exceed available timetable slots (${totalSessions} > ${MAX_SLOTS})`);
+    const weeklyTeachingSlots = DAYS.length * teachingSlots.length;
+    if (totalSessions > weeklyTeachingSlots) {
+        throw new Error(`Requested subject sessions exceed available weekly lesson slots (${totalSessions} > ${weeklyTeachingSlots})`);
     }
 
     const schedule = [];
     for (const day of DAYS) {
-        for (const period of PERIODS) {
+        for (const slot of TIMETABLE_SLOTS) {
+            const { period, startTime, endTime, slotType, label } = slot;
+            if (slotType !== 'lesson') {
+                schedule.push({ day, period, startTime, endTime, slotType, subject: null, teacher: null, subjectName: label, teacherName: label });
+                continue;
+            }
             const available = normalizedSubjects
                 .filter((item) => item.remaining > 0)
                 .filter((item) => !item.teacherId || !occupiedSlots.occupiedTeachers?.has(`${slotKey(day, period)}-${item.teacherId}`))
@@ -64,6 +84,9 @@ const buildBalancedSchedule = (subjects, occupiedSlots = {}) => {
                 schedule.push({
                     day,
                     period,
+                    startTime,
+                    endTime,
+                    slotType,
                     subject: null,
                     teacher: null,
                     subjectName: 'Free Period',
@@ -86,6 +109,9 @@ const buildBalancedSchedule = (subjects, occupiedSlots = {}) => {
             schedule.push({
                 day,
                 period,
+                startTime,
+                endTime,
+                slotType,
                 subject: chosen.subject._id,
                 teacher: chosen.teacherId,
                 subjectName: chosen.subject.subName,
@@ -124,6 +150,12 @@ const validateTimetableSchedule = async (schedule, classId, schoolId) => {
         }
         if (!PERIODS.includes(period)) {
             return { valid: false, message: `Invalid period ${period}.` };
+        }
+
+        const slot = TIMETABLE_SLOTS.find((item) => item.period === period);
+        if (slot.slotType !== 'lesson') {
+            if (subject || teacher) return { valid: false, message: `${slot.label} cannot have a subject or teacher.` };
+            continue;
         }
 
         const slotKey = `${day}-${period}`;
@@ -332,14 +364,18 @@ const updateTimetableForClass = async (req, res) => {
 
         if (timetable) {
             timetable.schedule = schedule.map((entry) => {
-                if (!entry.subject) {
+                const slot = TIMETABLE_SLOTS.find((item) => item.period === entry.period);
+                if (slot.slotType !== 'lesson' || !entry.subject) {
                     return {
                         day: entry.day,
                         period: entry.period,
+                        startTime: slot.startTime,
+                        endTime: slot.endTime,
+                        slotType: slot.slotType,
                         subject: null,
                         teacher: null,
-                        subjectName: 'Free Period',
-                        teacherName: 'Free Period',
+                        subjectName: slot.label || 'Free Period',
+                        teacherName: slot.label || 'Free Period',
                     };
                 }
                 const subjectId = entry.subject.toString();
@@ -347,6 +383,9 @@ const updateTimetableForClass = async (req, res) => {
                 return {
                     day: entry.day,
                     period: entry.period,
+                    startTime: slot.startTime,
+                    endTime: slot.endTime,
+                    slotType: slot.slotType,
                     subject: sub._id,
                     teacher: sub.teacher?._id || null,
                     subjectName: sub.subName,
@@ -359,20 +398,27 @@ const updateTimetableForClass = async (req, res) => {
             await timetable.save();
         } else {
             const mappedSchedule = schedule.map((entry) => {
-                if (!entry.subject) {
+                const slot = TIMETABLE_SLOTS.find((item) => item.period === entry.period);
+                if (slot.slotType !== 'lesson' || !entry.subject) {
                     return {
                         day: entry.day,
                         period: entry.period,
+                        startTime: slot.startTime,
+                        endTime: slot.endTime,
+                        slotType: slot.slotType,
                         subject: null,
                         teacher: null,
-                        subjectName: 'Free Period',
-                        teacherName: 'Free Period',
+                        subjectName: slot.label || 'Free Period',
+                        teacherName: slot.label || 'Free Period',
                     };
                 }
                 const sub = validationResult.subjectMap[entry.subject.toString()];
                 return {
                     day: entry.day,
                     period: entry.period,
+                    startTime: slot.startTime,
+                    endTime: slot.endTime,
+                    slotType: slot.slotType,
                     subject: sub._id,
                     teacher: sub.teacher?._id || null,
                     subjectName: sub.subName,

@@ -13,6 +13,7 @@ import TabPanel from '@mui/lab/TabPanel';
 import { resetSubjects } from "../../../redux/sclassRelated/sclassSlice";
 import { promoteClassStudents } from '../../../redux/sclassRelated/sclassHandle';
 import { BlueButton, GreenButton, PurpleButton } from "../../../components/buttonStyles";
+import { getTimetableTime } from '../../../utils/timetableSlots';
 import { Dialog, DialogTitle, DialogContent, DialogActions, FormControlLabel, Checkbox } from '@mui/material';
 import TableTemplate from "../../../components/TableTemplate";
 import PersonAddAlt1Icon from '@mui/icons-material/PersonAddAlt1';
@@ -496,6 +497,7 @@ const ClassDetails = () => {
                             <TableHead>
                                 <TableRow>
                                     <TableCell>Day</TableCell>
+                                    <TableCell>Time</TableCell>
                                     <TableCell>Period</TableCell>
                                     <TableCell>Subject</TableCell>
                                     <TableCell>Teacher</TableCell>
@@ -508,6 +510,7 @@ const ClassDetails = () => {
                                 }).map((entry, index) => (
                                     <TableRow key={index}>
                                         <TableCell>{entry.day}</TableCell>
+                                        <TableCell>{getTimetableTime(entry)}</TableCell>
                                         <TableCell>{entry.period}</TableCell>
                                         <TableCell>{entry.subjectName}</TableCell>
                                         <TableCell>{entry.teacherName}</TableCell>
@@ -542,7 +545,8 @@ const ClassDetails = () => {
                         <TableHead>
                             <TableRow>
                                 <TableCell>Day</TableCell>
-                                <TableCell>Period</TableCell>
+                                    <TableCell>Time</TableCell>
+                                    <TableCell>Period</TableCell>
                                 <TableCell>Subject</TableCell>
                                 <TableCell>Teacher</TableCell>
                             </TableRow>
@@ -556,9 +560,10 @@ const ClassDetails = () => {
                                 return (
                                     <TableRow key={`${entry.day}-${entry.period}`}>
                                         <TableCell>{entry.day}</TableCell>
+                                        <TableCell>{getTimetableTime(entry)}</TableCell>
                                         <TableCell>{entry.period}</TableCell>
                                         <TableCell>
-                                            <FormControl fullWidth>
+                                            {entry.slotType === 'break' || entry.slotType === 'lunch' ? entry.subjectName : <FormControl fullWidth>
                                                 <InputLabel id={`subject-select-${entry.day}-${entry.period}`}>Subject</InputLabel>
                                                 <Select
                                                     labelId={`subject-select-${entry.day}-${entry.period}`}
@@ -573,7 +578,7 @@ const ClassDetails = () => {
                                                         </MenuItem>
                                                     ))}
                                                 </Select>
-                                            </FormControl>
+                                            </FormControl>}
                                         </TableCell>
                                         <TableCell>{selectedSubject.teacherName || 'Unassigned'}</TableCell>
                                     </TableRow>

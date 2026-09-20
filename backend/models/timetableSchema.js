@@ -38,6 +38,19 @@ const timetableSchema = new mongoose.Schema({
                 type: Number,
                 required: true,
             },
+            startTime: {
+                type: String,
+                default: '',
+            },
+            endTime: {
+                type: String,
+                default: '',
+            },
+            slotType: {
+                type: String,
+                enum: ['lesson', 'break', 'lunch'],
+                default: 'lesson',
+            },
             subject: {
                 type: mongoose.Schema.Types.ObjectId,
                 ref: 'subject',
