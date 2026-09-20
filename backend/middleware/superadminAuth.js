@@ -1,9 +1,14 @@
 const Admin = require('../models/adminSchema.js');
+const { getAuthenticatedSubject, hasBearerToken } = require('../utils/authToken.js');
 
 // Middleware to verify SuperAdmin role
 const verifySuperAdmin = async (req, res, next) => {
     try {
-        const superAdminId = req.get('x-admin-id') || req.body.adminID || req.query.adminID;
+        const authenticatedSubject = getAuthenticatedSubject(req);
+        if (hasBearerToken(req) && !authenticatedSubject) {
+            return res.status(401).send({ message: 'Invalid or expired authentication token' });
+        }
+        const superAdminId = authenticatedSubject || req.get('x-admin-id') || req.body.adminID || req.query.adminID;
         
         if (!superAdminId) {
             return res.status(401).send({ message: 'No admin ID provided' });
@@ -41,7 +46,11 @@ const verifySuperAdmin = async (req, res, next) => {
 // Middleware to verify Admin role (School Admin or SuperAdmin)
 const verifyAdmin = async (req, res, next) => {
     try {
-        const adminId = req.get('x-admin-id') || req.body.adminID || req.query.adminID;
+        const authenticatedSubject = getAuthenticatedSubject(req);
+        if (hasBearerToken(req) && !authenticatedSubject) {
+            return res.status(401).send({ message: 'Invalid or expired authentication token' });
+        }
+        const adminId = authenticatedSubject || req.get('x-admin-id') || req.body.adminID || req.query.adminID;
         
         if (!adminId) {
             return res.status(401).send({ message: 'No admin ID provided' });

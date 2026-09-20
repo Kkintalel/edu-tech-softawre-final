@@ -19,4 +19,23 @@ const verifyAdminToken = (token) => {
     return jwt.verify(token, secret);
 };
 
-module.exports = { issueAdminToken, verifyAdminToken };
+const getBearerToken = (req) => {
+    const authorization = req.get('authorization') || '';
+    if (!authorization.startsWith('Bearer ')) return null;
+    return authorization.slice(7).trim() || null;
+};
+
+const hasBearerToken = (req) => Boolean(req.get('authorization'));
+
+const getAuthenticatedSubject = (req) => {
+    const token = getBearerToken(req);
+    if (!token) return null;
+    try {
+        const payload = verifyAdminToken(token);
+        return payload.sub ? String(payload.sub) : null;
+    } catch (error) {
+        return null;
+    }
+};
+
+module.exports = { issueAdminToken, verifyAdminToken, getBearerToken, hasBearerToken, getAuthenticatedSubject };

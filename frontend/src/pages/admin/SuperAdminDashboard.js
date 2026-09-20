@@ -144,6 +144,30 @@ const SuperAdminDashboard = () => {
         setStatusReason('');
     };
 
+    const handleDeleteSchool = async (school) => {
+        const confirmation = window.prompt(
+            `This permanently deletes ${school.schoolName} and all related school data. Type DELETE ${school.schoolName} to continue.`
+        );
+        if (confirmation !== `DELETE ${school.schoolName}`) return;
+
+        setLoading(true);
+        setError('');
+        setSuccess('');
+        try {
+            const adminId = getAdminId();
+            await axios.delete(`${API_BASE_URL}/SuperAdmin/School/${school._id}`, {
+                data: { confirmation },
+                headers: adminId ? { 'x-admin-id': adminId } : {},
+            });
+            setSuccess(`School ${school.schoolName} and related data were permanently deleted.`);
+            await Promise.all([fetchRegisteredSchools(), fetchPendingSchools(), fetchStats()]);
+        } catch (err) {
+            setError(err.response?.data?.message || 'Failed to delete school');
+        } finally {
+            setLoading(false);
+        }
+    };
+
     if (currentRole !== 'SuperAdmin') {
         return (
             <Box sx={{ p: 4 }}>
@@ -291,6 +315,16 @@ const SuperAdminDashboard = () => {
                                                             onClick={() => handleStatusActionOpen(school._id, 'deactivate')}
                                                         >
                                                             Deactivate
+                                                        </Button>
+                                                    )}
+                                                    {school.role !== 'SuperAdmin' && (
+                                                        <Button
+                                                            size="small"
+                                                            variant="outlined"
+                                                            color="error"
+                                                            onClick={() => handleDeleteSchool(school)}
+                                                        >
+                                                            Delete Permanently
                                                         </Button>
                                                     )}
                                                         </>;

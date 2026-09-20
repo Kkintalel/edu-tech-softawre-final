@@ -4,6 +4,9 @@ import './index.css';
 import App from './App';
 import store from './redux/store';
 import { Provider } from 'react-redux';
+import { configureAxios } from './utils/configureAxios';
+
+configureAxios();
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(

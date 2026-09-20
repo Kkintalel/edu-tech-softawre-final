@@ -5,9 +5,13 @@ const Student = require('../models/studentSchema.js');
 const Parent = require('../models/parentSchema.js');
 const School = require('../models/schoolSchema.js');
 const Subscription = require('../models/subscriptionSchema.js');
+const { getAuthenticatedSubject, hasBearerToken } = require('../utils/authToken.js');
 
 const getAdminIdFromReq = (req) => {
-    let requestId = req.get('x-admin-id') || req.get('x-user-id') ||
+    const authenticatedSubject = getAuthenticatedSubject(req);
+    if (hasBearerToken(req)) return authenticatedSubject;
+
+    let requestId = authenticatedSubject || req.get('x-admin-id') || req.get('x-user-id') ||
         req.body.adminID || req.body.userID || req.body.userId ||
         req.query.adminID || req.query.userID || req.query.userId ||
         req.query.adminId || req.query.userId || req.params.adminId;

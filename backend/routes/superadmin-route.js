@@ -1,4 +1,5 @@
 const router = require('express').Router();
+const { verifySuperAdmin } = require('../middleware/superadminAuth.js');
 
 const {
     // School Management
@@ -44,7 +45,7 @@ const {
 router.get('/SuperAdmin/Schools', getAllSchools);
 router.post('/SuperAdmin/School/Create', createSchool);
 router.put('/SuperAdmin/School/:schoolId', updateSchool);
-router.delete('/SuperAdmin/School/:schoolId', deleteSchool);
+router.delete('/SuperAdmin/School/:schoolId', verifySuperAdmin, deleteSchool);
 router.post('/SuperAdmin/School/:schoolId/Suspend', suspendSchool);
 router.post('/SuperAdmin/School/:schoolId/Activate', activateSchool);
 router.post('/SuperAdmin/School/:schoolId/Deactivate', deactivateSchool);
