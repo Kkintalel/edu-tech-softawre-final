@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const { sendResetPasswordLink } = require('../services/emailService.js');
+const { verifyAdmin } = require('../middleware/superadminAuth.js');
 
 // Import rate limiters for sensitive endpoints
 const { loginLimiter, passwordResetLimiter, studentRegistrationLimiter, adminTeacherRegistrationLimiter, fileUploadLimiter } = require('../middleware/rateLimiter');
@@ -140,6 +141,7 @@ router.put("/Student/:id", updateStudent)
 router.put('/UpdateExamResult/:id', updateExamResult)
 
 router.put('/StudentPayment/:id', studentFeePayment)
+router.post('/Student/VerifyPayment', verifyAdmin, verifyPayment)
 router.post('/Student/PaymentWebhook', paymentWebhook)
 router.get('/Student/PaymentReconciliation/:schoolId', getPaymentReconciliation)
 router.post('/Student/PaymentReconciliation/:schoolId', applyPaymentReconciliation)
