@@ -11,6 +11,7 @@ const ChooseUser = lazy(() => import('./pages/ChooseUser'));
 const ParentLogin = lazy(() => import('./pages/parent/ParentLogin'));
 const ParentDashboard = lazy(() => import('./pages/parent/ParentDashboard'));
 const ParentTimetable = lazy(() => import('./pages/parent/ParentTimetable'));
+const ParentProgress = lazy(() => import('./pages/parent/ParentProgress'));
 const PayFee = lazy(() => import('./pages/parent/PayFee'));
 const PaymentHistory = lazy(() => import('./pages/parent/PaymentHistory'));
 const AccountantDashboard = lazy(() => import('./pages/accountant/AccountantDashboard'));
@@ -64,6 +65,7 @@ const App = () => {
         <Route path="/acceptance" element={<AcceptancePage />} />
 
         <Route path="/Parent/dashboard" element={<ParentDashboard />} />
+        <Route path="/Parent/progress" element={<ParentProgress />} />
         <Route path="/Parent/pay-fee" element={<PayFee />} />
         <Route path="/Parent/payment-history" element={<PaymentHistory />} />
         <Route path="/Parent/timetable" element={<ParentTimetable />} />

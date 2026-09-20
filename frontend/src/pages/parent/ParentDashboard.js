@@ -385,6 +385,13 @@ const ParentDashboard = () => {
                     <Button
                         variant="outlined"
                         sx={{ color: '#1976d2', borderColor: '#1976d2' }}
+                        onClick={() => navigate('/Parent/progress', { state: { student: studentInfo } })}
+                    >
+                        View Progress Report
+                    </Button>
+                    <Button
+                        variant="outlined"
+                        sx={{ color: '#1976d2', borderColor: '#1976d2' }}
                         onClick={() => navigate('/Parent/timetable')}
                     >
                         View Timetable

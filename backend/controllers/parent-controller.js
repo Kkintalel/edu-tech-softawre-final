@@ -6,6 +6,31 @@ const Settings = require('../models/settingsSchema');
 const { verifyEntityBelongsToAdminSchool } = require('../middleware/schoolAccess');
 const { initiateStkPush, queryStkPushStatus } = require('../services/mpesaService');
 
+const GRADING_TABLES = {
+    achievement: [
+        { min: 90, grade: 'EE1', level: 'AL8', points: 8, remark: 'Exceeding Expectation' },
+        { min: 75, grade: 'EE2', level: 'AL7', points: 7, remark: 'Exceeding Expectation' },
+        { min: 58, grade: 'ME1', level: 'AL6', points: 6, remark: 'Meeting Expectation' },
+        { min: 41, grade: 'ME2', level: 'AL5', points: 5, remark: 'Meeting Expectation' },
+        { min: 31, grade: 'AE1', level: 'AL4', points: 4, remark: 'Approaching Expectation' },
+        { min: 21, grade: 'AE2', level: 'AL3', points: 3, remark: 'Approaching Expectation' },
+        { min: 11, grade: 'BE1', level: 'AL2', points: 2, remark: 'Below Expectation' },
+        { min: 0, grade: 'BE2', level: 'AL1', points: 1, remark: 'Below Expectation' },
+    ],
+};
+
+const calculateResultGrade = (marks, gradingSystem = 'achievement') => {
+    const numericMarks = Number(marks);
+    const table = GRADING_TABLES[gradingSystem] || GRADING_TABLES.achievement;
+    return table.find((entry, index) => numericMarks >= entry.min && (index === 0 || numericMarks < table[index - 1].min)) || table[table.length - 1];
+};
+
+const getComputedResult = (result = {}) => {
+    const gradingSystem = GRADING_TABLES[result.gradingSystem] ? result.gradingSystem : 'achievement';
+    const grade = calculateResultGrade(result.marksObtained, gradingSystem);
+    return { ...result, gradingSystem, ...grade };
+};
+
 // Parent Login - authenticate with admission number, parent email, and password
 const parentLogIn = async (req, res) => {
     try {
@@ -261,6 +286,72 @@ const getParentStudents = async (req, res) => {
     } catch (error) {
         console.error('Get parent students error:', error);
         res.status(500).json({ message: 'Failed to fetch students', error: error.message });
+    }
+};
+
+const getParentStudentProgress = async (req, res) => {
+    try {
+        const studentId = req.params.studentId || req.query.studentId || req.body.studentId;
+        const parentEmail = req.query.parentEmail?.trim().toLowerCase() || req.body.parentEmail?.trim().toLowerCase();
+
+        if (!studentId || !parentEmail) {
+            return res.status(400).send({ message: 'Student ID and parent email are required' });
+        }
+
+        const student = await Student.findById(studentId)
+            .populate('sclassName', 'sclassName')
+            .populate({ path: 'examResult.subName', select: 'subName teacher', populate: { path: 'teacher', select: 'name' } })
+            .select('-password');
+
+        if (!student) {
+            return res.status(404).send({ message: 'Student not found' });
+        }
+
+        const validEmails = [student.parentEmail, student.guardianEmail, student.email].filter(Boolean).map((value) => value.trim().toLowerCase());
+        if (!validEmails.includes(parentEmail)) {
+            return res.status(403).send({ message: 'Unauthorized access to this student report' });
+        }
+
+        const examResult = (student.examResult || []).map((result) => ({
+            ...getComputedResult(result),
+            subjectTeacher: result.subName?.teacher?.name || 'Not assigned',
+            subject: result.subName?.subName || 'Unknown Subject',
+            subjectId: String(result.subName?._id || result.subName || ''),
+        }));
+
+        const totalMarks = examResult.reduce((sum, result) => sum + Number(result.marksObtained || 0), 0);
+        const totalPoints = examResult.reduce((sum, result) => sum + Number(result.points || 0), 0);
+        const average = examResult.length ? totalMarks / examResult.length : 0;
+
+        const resultPayload = {
+            id: student._id || student.id,
+            studentId: student._id || student.id,
+            name: student.name,
+            admissionNo: student.admissionNo,
+            rollNum: student.rollNum,
+            className: student.sclassName?.sclassName || 'N/A',
+            stream: student.stream || student.streamName || null,
+            term: student.term || student.session || 'Not set',
+            school: student.school || null,
+            classTeacherRemarks: student.classTeacherRemarks || student.teacherRemarks || '',
+            principalRemarks: student.principalRemarks || student.headTeacherRemarks || '',
+            nextSchoolOpeningDate: student.nextSchoolOpeningDate || student.nextOpeningDate || null,
+            reportSummary: {
+                totalMarks,
+                totalPoints,
+                average,
+                totalMarksPossible: examResult.length * 100,
+                overallRank: null,
+                overallOutOf: null,
+                subjectRanks: {},
+            },
+            examResult,
+        };
+
+        res.send(resultPayload);
+    } catch (error) {
+        console.error('Get parent progress error:', error);
+        res.status(500).json({ message: 'Failed to fetch student progress report', error: error.message });
     }
 };
 
@@ -611,6 +702,7 @@ module.exports = {
     getStudentFeeInfo,
     parentPayFee,
     getParentStudents,
+    getParentStudentProgress,
     initiateStk,
     // For testing without real M-Pesa integration
     mockInitiateStk,

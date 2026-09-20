@@ -11,7 +11,7 @@ const messageRoutes = require('./message-route.js');
 // const { adminRegister, adminLogIn, deleteAdmin, getAdminDetail, updateAdmin } = require('../controllers/admin-controller.js');
 
 const { adminRegister, adminLogIn, updateAdmin, addAccountant, addHR, getAccountants, getHRStaff, getAdminDetail, getPendingAdmins, approveAdmin, declineAdmin, getAdminSummary, getAdminSettings, updateAdminSettings, getSystemBackup, getRegisteredSchools, getPendingSchools, getAdminStats, updateAdminRole, requestAdminPasswordReset, resetAdminPassword, sendAdmin2FACode, verifyAdmin2FACode } = require('../controllers/admin-controller.js');
-const { parentLogIn, getStudentFeeInfo, parentPayFee, getParentStudents, initiateStk, mockInitiateStk, checkStkStatus, mpesaCallback } = require('../controllers/parent-controller.js');
+const { parentLogIn, getStudentFeeInfo, parentPayFee, getParentStudents, getParentStudentProgress, initiateStk, mockInitiateStk, checkStkStatus, mpesaCallback } = require('../controllers/parent-controller.js');
 
 const { sclassCreate, sclassList, deleteSclass, deleteSclasses, getSclassDetail, getSclassStudents, promoteSclassStudents } = require('../controllers/class-controller.js');
 const { generateTimetableForClass, updateTimetableForClass, getTimetableForClass } = require('../controllers/timetable-controller.js');
@@ -287,6 +287,7 @@ router.get('/Assignment/:id/Submissions', getAssignmentSubmissions);
 router.post('/ParentLogin', parentLogIn);
 router.get('/Parent/Students/:parentEmail', getParentStudents);
 router.get('/Parent/StudentFees/:studentId', getStudentFeeInfo);
+router.get('/Parent/StudentProgress/:studentId', getParentStudentProgress);
 router.put('/Parent/PayFee/:studentId', parentPayFee);
 
 // M-Pesa STK Push Payment
