@@ -150,6 +150,20 @@ const studentSchema = new mongoose.Schema({
         type: String,
         default: ''
     },
+    reportCardStatus: {
+        type: String,
+        enum: ['Draft', 'Published', 'Amended'],
+        default: 'Draft'
+    },
+    reportCardPublishedAt: {
+        type: Date,
+        default: null
+    },
+    reportCardPublishedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'admin',
+        default: null
+    },
     nextSchoolOpeningDate: {
         type: Date,
         default: null

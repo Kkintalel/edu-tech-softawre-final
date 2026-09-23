@@ -1423,11 +1423,14 @@ const updateExamResult = async (req, res) => {
         const normalizedTerm = (term || 'Term 1').toString().trim() || 'Term 1';
         const computedGrade = calculateResultGrade(numericMarks, normalizedGradingSystem);
 
-        const student = await Student.findById(req.params.id).select('_id name school examResult');
+        const student = await Student.findById(req.params.id).select('_id name school examResult reportCardStatus');
         if (!(await verifyEntityBelongsToAdminSchool(req, res, student))) return;
 
         if (!student) {
             return res.status(404).send({ message: 'Student not found' });
+        }
+        if (student.reportCardStatus === 'Published') {
+            return res.status(409).send({ message: 'This report card is published. Reopen it before changing marks.' });
         }
 
         const existingResult = student.examResult?.find((result) =>
@@ -1557,6 +1560,44 @@ const requestStudentPasswordReset = async (req, res) => {
         res.send({ message: 'Student password reset link sent', emailResult });
     } catch (error) {
         res.status(500).json(error);
+    }
+};
+
+const updateReportCardStatus = async (req, res) => {
+    try {
+        const { status } = req.body;
+        if (!['Published', 'Draft'].includes(status)) {
+            return res.status(400).send({ message: 'Status must be Published or Draft' });
+        }
+
+        const student = await Student.findById(req.params.id);
+        if (!(await verifyEntityBelongsToAdminSchool(req, res, student))) return;
+        if (!student) return res.status(404).send({ message: 'Student not found' });
+
+        student.reportCardStatus = status === 'Published' ? 'Published' : 'Amended';
+        student.reportCardPublishedAt = status === 'Published' ? new Date() : null;
+        student.reportCardPublishedBy = status === 'Published' ? req.userId : null;
+        await student.save();
+
+        await logAuditAction({
+            school: student.school,
+            user: req.userId,
+            userName: req.user?.name || req.user?.email || 'Admin',
+            userRole: req.user?.role || 'Admin',
+            action: status === 'Published' ? 'PUBLISH' : 'REOPEN',
+            entityType: 'report_card',
+            entityId: student._id,
+            entityName: `${student.name || student._id} report card`,
+            ipAddress: req.clientIP || req.ip || 'Unknown',
+            userAgent: req.get('user-agent') || '',
+            status: 'success',
+            resultMessage: `Report card ${status === 'Published' ? 'published' : 'reopened for amendment'}`,
+            context: { module: 'Reports', page: 'Student Report Card', method: req.method },
+        });
+
+        res.send({ message: status === 'Published' ? 'Report card published' : 'Report card reopened for amendment', student });
+    } catch (error) {
+        res.status(500).json({ message: 'Failed to update report card status', error: error.message });
     }
 };
 
@@ -1926,7 +1967,9 @@ const removeStudentAttendance = async (req, res) => {
 const searchStudent = async (req, res) => {
     try {
         const { schoolId } = req.params;
-        const { rollNum, admissionNo, query } = req.query;
+        const rollNum = String(req.query.rollNum || '').trim();
+        const admissionNo = String(req.query.admissionNo || '').trim();
+        const query = String(req.query.query || '').trim();
 
         if (!(await verifySchoolId(req, res, schoolId))) return;
 
@@ -2045,6 +2088,7 @@ module.exports = {
     studentAttendance,
     deleteStudentsByClass,
     updateExamResult,
+    updateReportCardStatus,
     clearAllStudentsAttendanceBySubject,
     clearAllStudentsAttendance,
     removeStudentAttendanceBySubject,

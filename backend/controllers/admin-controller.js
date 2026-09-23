@@ -820,7 +820,7 @@ const adminLogIn = async (req, res) => {
             const schoolQuery = schoolRef
                 ? { $or: [{ _id: schoolRef }, { schoolAdmin: schoolRef }] }
                 : { schoolAdmin: admin._id };
-            const schoolRecord = await School.findOne(schoolQuery).select('_id status statusChangeReason schoolName');
+            const schoolRecord = await School.findOne(schoolQuery);
             const school = await enforceSubscriptionStatus(schoolRecord?._id || schoolRef);
             const normalizedSchoolStatus = String(school?.status || '').trim().toLowerCase();
             if (school && ['suspended', 'inactive'].includes(normalizedSchoolStatus)) {
@@ -1471,5 +1471,5 @@ const resetAdminPassword = async (req, res) => {
     }
 };
 
-module.exports = { adminRegister, adminLogIn, updateAdmin, addAccountant, addHR, getAccountants, getHRStaff, getAdminDetail, getPendingAdmins, approveAdmin, declineAdmin, getAdminSummary, getAdminSettings, updateAdminSettings, getSystemBackup, getRegisteredSchools, getPendingSchools, getAdminStats, updateAdminRole, requestAdminPasswordReset, resetAdminPassword, sendAdmin2FACode, verifyAdmin2FACode };
+module.exports = { adminRegister, adminLogIn, updateAdmin, addAccountant, addHR, getAccountants, getHRStaff, getAdminDetail, getPendingAdmins, approveAdmin, declineAdmin, getAdminSummary, getAdminSettings, updateAdminSettings, getSystemBackup, getRegisteredSchools, getPendingSchools, getAdminStats, getSchoolScopeFilter, updateAdminRole, requestAdminPasswordReset, resetAdminPassword, sendAdmin2FACode, verifyAdmin2FACode };
 

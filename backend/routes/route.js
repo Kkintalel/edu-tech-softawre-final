@@ -37,6 +37,7 @@ const {
     studentAttendance,
     deleteStudentsByClass,
     updateExamResult,
+    updateReportCardStatus,
     clearAllStudentsAttendanceBySubject,
     clearAllStudentsAttendance,
     removeStudentAttendanceBySubject,
@@ -139,6 +140,7 @@ router.delete('/Test/Student/:id', cleanupTempStudent)
 router.put("/Student/:id", updateStudent)
 
 router.put('/UpdateExamResult/:id', updateExamResult)
+router.post('/Student/:id/ReportCardStatus', verifyAdmin, updateReportCardStatus)
 
 router.put('/StudentPayment/:id', studentFeePayment)
 router.post('/Student/VerifyPayment', verifyAdmin, verifyPayment)

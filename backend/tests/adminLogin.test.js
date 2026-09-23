@@ -12,12 +12,17 @@ jest.mock('mongoose', () => {
   return {
     connection: { readyState: 1 },
     Schema,
+    model: jest.fn(() => ({})),
   };
 });
 
 jest.mock('../models/adminSchema.js', () => ({
   findOne: mockAdminFindOne,
   countDocuments: jest.fn().mockResolvedValue(1),
+}));
+
+jest.mock('../models/schoolSchema.js', () => ({
+  findOne: jest.fn().mockResolvedValue(null),
 }));
 
 jest.mock('../models/securitySettingsSchema', () => ({
@@ -34,6 +39,7 @@ jest.mock('../models/complainSchema.js', () => ({}));
 
 jest.mock('../middleware/schoolAccess.js', () => ({
   getAdminIdFromReq: jest.fn(),
+  enforceSubscriptionStatus: jest.fn().mockResolvedValue(null),
 }));
 
 jest.mock('../utils/twoFactorAuth.js', () => ({
@@ -48,6 +54,10 @@ jest.mock('../services/emailService.js', () => ({
   sendAdminApprovalEmail: jest.fn(),
   sendAdminRejectionEmail: jest.fn(),
   sendResetPasswordLink: jest.fn(),
+}));
+
+jest.mock('../utils/authToken.js', () => ({
+  issueAdminToken: jest.fn(() => 'test-token'),
 }));
 
 jest.mock('bcrypt', () => ({

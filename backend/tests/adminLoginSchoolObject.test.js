@@ -26,6 +26,13 @@ jest.mock('../models/subjectSchema', () => ({}));
 jest.mock('../models/noticeSchema', () => ({}));
 jest.mock('../models/complainSchema', () => ({}));
 
+jest.mock('../middleware/schoolAccess', () => ({
+  enforceSubscriptionStatus: jest.fn().mockResolvedValue({
+    status: 'Suspended',
+    statusChangeReason: 'Suspension for testing',
+  }),
+}));
+
 jest.mock('../services/emailService', () => ({
   sendAdminApprovalEmail: jest.fn(),
   sendAdminRejectionEmail: jest.fn(),
@@ -99,6 +106,8 @@ describe('adminLogIn', () => {
       send: jest.fn(),
       json: jest.fn(),
     };
+
+    mongoose.connection.readyState = 1;
 
     await adminLogIn(req, res);
 

@@ -130,6 +130,7 @@ const ViewStudent = () => {
     const [notifyVia, setNotifyVia] = useState('both');
     const [notifyLoading, setNotifyLoading] = useState(false);
     const [approvingPaymentIndex, setApprovingPaymentIndex] = useState(null);
+    const [reportCardStatusLoading, setReportCardStatusLoading] = useState(false);
 
     const fields = password === ""
         ? { name, rollNum }
@@ -161,6 +162,23 @@ const ViewStudent = () => {
             setShowPopup(true);
         }
     }
+
+    const updateReportCardStatus = async (status) => {
+        setReportCardStatusLoading(true);
+        try {
+            const response = await axios.post(`${process.env.REACT_APP_BASE_URL || 'http://localhost:5000'}/Student/${studentID}/ReportCardStatus`, { status }, {
+                headers: { 'Content-Type': 'application/json', 'x-admin-id': currentUser?._id }
+            });
+            setMessage(response.data?.message || 'Report card status updated.');
+            setShowPopup(true);
+            await dispatch(getUserDetails(studentID, address));
+        } catch (error) {
+            setMessage(error?.response?.data?.message || 'Unable to update report card status.');
+            setShowPopup(true);
+        } finally {
+            setReportCardStatusLoading(false);
+        }
+    };
 
     const deleteHandler = async () => {
         if (!window.confirm('Delete this student permanently? This cannot be undone.')) {
@@ -397,6 +415,20 @@ const ViewStudent = () => {
         const renderTableSection = () => {
             return (
                 <>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, mb: 2, flexWrap: 'wrap' }}>
+                        <Typography variant="body2">
+                            Report card status: <strong>{userDetails?.reportCardStatus || 'Draft'}</strong>
+                        </Typography>
+                        {userDetails?.reportCardStatus === 'Published' ? (
+                            <Button variant="outlined" color="warning" disabled={reportCardStatusLoading} onClick={() => updateReportCardStatus('Draft')}>
+                                Reopen for Amendment
+                            </Button>
+                        ) : (
+                            <Button variant="contained" color="success" disabled={reportCardStatusLoading} onClick={() => updateReportCardStatus('Published')}>
+                                Publish Report Card
+                            </Button>
+                        )}
+                    </Box>
                     <h3>Subject Marks:</h3>
                     <Table>
                         <TableHead>

@@ -604,8 +604,30 @@ const mpesaCallback = async (req, res) => {
             );
 
             if (resultCode === '0') {
-                // Payment successful for student
                 const paymentRecord = student.paymentHistory[paymentIndex];
+                const schoolSettings = await Settings.findOne({ school: student.school }).select('mpesaSettings');
+                const mpesaSettings = schoolSettings?.mpesaSettings;
+                const providerStatus = await queryStkPushStatus(
+                    checkoutRequestId,
+                    mpesaSettings?.enabled ? mpesaSettings.toObject() : undefined
+                );
+                const metadataItems = result.CallbackMetadata?.Item || [];
+                const metadata = metadataItems.reduce((values, item) => {
+                    values[item.Name] = item.Value;
+                    return values;
+                }, {});
+                const callbackAmount = Number(metadata.Amount);
+                const receiptNumber = metadata.MpesaReceiptNumber || result.MpesaReceiptNumber;
+
+                if (!providerStatus.success || String(providerStatus.resultCode) !== '0') {
+                    console.warn(`Rejected unverified M-Pesa callback for checkout ${checkoutRequestId}`);
+                    return res.status(202).send({ message: 'Payment callback received; awaiting provider verification' });
+                }
+                if (!receiptNumber || (Number.isFinite(callbackAmount) && callbackAmount !== Number(paymentRecord.amount))) {
+                    console.warn(`Rejected mismatched M-Pesa callback for checkout ${checkoutRequestId}`);
+                    return res.status(400).send({ message: 'Payment callback does not match the pending payment' });
+                }
+
                 paymentRecord.status = 'Completed';
 
                 const currentPeriod = student.feePeriodKey || 'initial';
@@ -617,8 +639,8 @@ const mpesaCallback = async (req, res) => {
                 student.paymentStatus = 'Completed';
 
                 paymentRecord.balanceAfter = student.balance;
-                paymentRecord.mpesaReceiptNumber = result.MpesaReceiptNumber;
-                paymentRecord.transactionDate = result.TransactionDate;
+                paymentRecord.mpesaReceiptNumber = receiptNumber;
+                paymentRecord.transactionDate = metadata.TransactionDate || result.TransactionDate;
 
                 await student.save();
                 console.log(`Payment successful for student: ${student.name}, Balance: ${student.balance}`);

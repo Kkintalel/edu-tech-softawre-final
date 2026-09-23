@@ -76,13 +76,15 @@ const ShowStudents = () => {
     }
 
     const handleSearch = async () => {
-        if (!searchQuery) {
+        const normalizedQuery = searchQuery.trim();
+        if (!normalizedQuery) {
+            setSearchQuery('');
             dispatch(getAllStudents(schoolId, requesterId));
             return;
         }
         setSearching(true);
         try {
-            await dispatch(searchStudents(schoolId, searchQuery, requesterId));
+            await dispatch(searchStudents(schoolId, normalizedQuery, requesterId));
         } catch (err) {
             console.error('Search failed:', err);
         } finally {
@@ -280,9 +282,12 @@ const ShowStudents = () => {
             <Box sx={{ display: 'flex', gap: 1, mb: 2, alignItems: 'center' }}>
                 <input
                     type="text"
-                    placeholder="Search by admission or roll number"
+                    placeholder="Search by name, admission, or roll number"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleSearch();
+                    }}
                     style={{ padding: '8px', flex: 1, borderRadius: '4px', border: '1px solid #ccc' }}
                 />
                 <GreenButton variant="contained" onClick={handleSearch} disabled={searching}>

@@ -43,6 +43,7 @@ const AccountantStudents = () => {
   const [newTotalFees, setNewTotalFees] = useState('');
   const [feeError, setFeeError] = useState('');
   const [feeLoading, setFeeLoading] = useState(false);
+  const [verifyingPayment, setVerifyingPayment] = useState('');
 
   const schoolId = currentUser?.school?._id || currentUser?.school || currentUser?.schoolId;
   const adminId = currentUser?._id;
@@ -102,6 +103,27 @@ const AccountantStudents = () => {
       setError(err.response?.data?.message || err.message || 'Search failed');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleVerifyPayment = async (student, paymentIndex) => {
+    const payment = student?.paymentHistory?.[paymentIndex];
+    if (!payment || payment.status !== 'Pending') return;
+
+    const verificationKey = `${student._id}-${paymentIndex}`;
+    setVerifyingPayment(verificationKey);
+    setError('');
+    try {
+      await axios.post(`${API_BASE_URL}/Student/VerifyPayment`, {
+        studentId: student._id,
+        paymentIndex,
+        verifiedBy: currentUser?._id || currentUser?.email,
+      }, { headers });
+      await handleSearch();
+    } catch (err) {
+      setError(err.response?.data?.message || err.message || 'Payment verification failed');
+    } finally {
+      setVerifyingPayment('');
     }
   };
 
@@ -312,6 +334,26 @@ const AccountantStudents = () => {
               {searchResults.type === 'student' && searchResults.data.map(s => (
                 <Paper key={s._id} sx={{ p: 1, mb: 1 }}>
                   <Typography>{s.name} — {s.admissionNo} — {s.parentEmail || s.email}</Typography>
+                  {(s.paymentHistory || []).filter((payment) => payment.status === 'Pending').map((payment) => {
+                    const paymentIndex = s.paymentHistory.indexOf(payment);
+                    const verificationKey = `${s._id}-${paymentIndex}`;
+                    return (
+                      <Stack key={payment.receiptNumber || verificationKey} direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }} sx={{ mt: 1 }}>
+                        <Typography variant="body2">
+                          Pending: KES {Number(payment.amount || 0).toLocaleString()} | {payment.paymentMethod} | Ref: {payment.transactionId || 'Cash'}
+                        </Typography>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="success"
+                          disabled={verifyingPayment === verificationKey}
+                          onClick={() => handleVerifyPayment(s, paymentIndex)}
+                        >
+                          {verifyingPayment === verificationKey ? 'Verifying...' : 'Verify Payment'}
+                        </Button>
+                      </Stack>
+                    );
+                  })}
                 </Paper>
               ))}
               {searchResults.type === 'teacher' && searchResults.data.map(t => (
