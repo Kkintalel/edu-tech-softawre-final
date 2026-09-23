@@ -24,6 +24,7 @@ import PhotoLibraryIcon from '@mui/icons-material/PhotoLibrary';
 import HistoryIcon from '@mui/icons-material/History';
 import TimelineIcon from '@mui/icons-material/Timeline';
 import CardMembershipOutlinedIcon from '@mui/icons-material/CardMembershipOutlined';
+import MenuBookOutlinedIcon from '@mui/icons-material/MenuBookOutlined';
 
 const SideBar = () => {
     const location = useLocation();
@@ -149,6 +150,12 @@ const SideBar = () => {
                         <AccountBalanceIcon color={location.pathname.startsWith("/Admin/reports/financial") ? 'primary' : 'inherit'} />
                     </ListItemIcon>
                     <ListItemText primary="Financial Report" />
+                </ListItemButton>
+                <ListItemButton component={Link} to="/Admin/user-guides">
+                    <ListItemIcon>
+                        <MenuBookOutlinedIcon color={location.pathname.startsWith('/Admin/user-guides') ? 'primary' : 'inherit'} />
+                    </ListItemIcon>
+                    <ListItemText primary="User Guides" />
                 </ListItemButton>
                 <ListItemButton component={Link} to="/Admin/salary-approvals">
                     <ListItemIcon>

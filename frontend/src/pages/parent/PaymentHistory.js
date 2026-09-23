@@ -63,7 +63,11 @@ const PaymentHistory = () => {
                 </Box>
 
                 <Paper sx={{ p: 3 }}>
-                    <Box className="payment-history-branding" sx={{ display: 'none' }} dangerouslySetInnerHTML={{ __html: buildPrintBrandingHtml(currentUser) }} />
+                    <Box
+                        className="payment-history-branding"
+                        sx={{ display: 'none' }}
+                        dangerouslySetInnerHTML={{ __html: buildPrintBrandingHtml(currentUser, student?.school || currentUser?.school) }}
+                    />
                     <Box className="payment-history-actions" sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
                         <Typography variant="h5" sx={{ fontWeight: 'bold' }}>
                             Payment History - {student.name}

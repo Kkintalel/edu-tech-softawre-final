@@ -65,6 +65,7 @@ import SystemLogsPage from './SystemLogsPage';
 import MonitoringPage from './MonitoringPage';
 import SchoolSubscriptionsPage from './SchoolSubscriptionsPage';
 import AccountMenu from '../../components/AccountMenu';
+import UserGuidesPage from './UserGuidesPage';
 
 const AdminDashboard = () => {
     const [open, setOpen] = useState(false);
@@ -179,6 +180,7 @@ const AdminDashboard = () => {
                         <Route path="settings-categories/:categorySlug" element={<SettingsCategoryPage />} />
                         <Route path="reports/academic" element={<AcademicReport />} />
                         <Route path="reports/financial" element={<FinancialReport />} />
+                        <Route path="user-guides" element={<UserGuidesPage />} />
                         <Route path="salary-approvals" element={<SalaryApprovalsPage />} />
                         {isSuperAdmin && <Route path="approve" element={<AdminApprovePage />} />}
                         {isSuperAdmin && <Route path="school-subscriptions" element={<SchoolSubscriptionsPage />} />}

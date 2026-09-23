@@ -401,7 +401,7 @@ const PayFee = () => {
                                 <option value="Mpesa">M-Pesa Paybill</option>
                                 <option value="Paybill">Paybill Direct</option>
                                 <option value="Card">Card Payment</option>
-                                <option value="BankTransfer">Bank Transfer</option>
+                                <option value="Bank Transfer">Bank Transfer</option>
                                 <option value="Cash">Cash (with receipt)</option>
                             </TextField>
 
@@ -433,7 +433,7 @@ const PayFee = () => {
                                     sx={{ backgroundColor: '#4caf50' }}
                                     disabled={loading || !amount || Number(amount) <= 0}
                                 >
-                                    {loading ? <CircularProgress size={24} color="inherit" /> : 'Record Payment'}
+                                    {loading ? <CircularProgress size={24} color="inherit" /> : 'Submit for Verification'}
                                 </Button>
                             </Box>
                         </Box>
@@ -448,7 +448,7 @@ const PayFee = () => {
                             <strong>STK Push (Quick Pay):</strong> Instant M-Pesa payment via phone PIN prompt
                         </Typography>
                         <Typography variant="caption" display="block">
-                            <strong>Manual Entry:</strong> Record payments made via Paybill, Bank Transfer, or Cash
+                            <strong>Manual Entry:</strong> Submit Paybill, Bank Transfer, or Cash details for school verification. The amount is not credited until an administrator confirms it.
                         </Typography>
                     </Box>
                 </Paper>

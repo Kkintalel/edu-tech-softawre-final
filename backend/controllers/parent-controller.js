@@ -172,6 +172,7 @@ const parentPayFee = async (req, res) => {
         const studentId = req.params.studentId || req.body.studentId || req.query.studentId;
         const { amount, paymentMethod, parentEmail, transactionId } = req.body;
         const normalizedParentEmail = parentEmail?.trim().toLowerCase();
+        const normalizedTransactionId = transactionId?.trim();
 
         if (!amount || Number(amount) <= 0) {
             return res.status(400).send({ message: 'Please enter a valid payment amount' });
@@ -193,10 +194,6 @@ const parentPayFee = async (req, res) => {
             return res.status(403).send({ message: 'Unauthorized payment attempt' });
         }
 
-        // Auto-complete payment if payment method is cash or has transaction ID
-        const autoCompleteMethods = ['Paybill', 'Mpesa', 'Card', 'BankTransfer'];
-        const paymentCompleted = paymentMethod === 'Cash' || (autoCompleteMethods.includes(paymentMethod) && transactionId);
-
         // Generate receipt number
         const receiptNumber = `RCPT-${student.admissionNo || student.rollNum}-${Date.now()}`;
 
@@ -204,13 +201,24 @@ const parentPayFee = async (req, res) => {
         // Validate paymentMethod is in allowed enum
         const validPaymentMethods = ['Paybill', 'Card', 'Bank Transfer', 'Cash', 'Account Number', 'Online Transfer', 'Mpesa', 'M-Pesa STK Push'];
         const finalPaymentMethod = paymentMethod && validPaymentMethods.includes(paymentMethod) ? paymentMethod : 'Paybill';
+
+        if (normalizedTransactionId) {
+            const duplicatePayment = (student.paymentHistory || []).some((payment) =>
+                payment.transactionId?.trim().toLowerCase() === normalizedTransactionId.toLowerCase() ||
+                payment.reference?.trim().toLowerCase() === normalizedTransactionId.toLowerCase() ||
+                payment.paymentReference?.trim().toLowerCase() === normalizedTransactionId.toLowerCase()
+            );
+            if (duplicatePayment) {
+                return res.status(409).send({ message: 'This transaction reference has already been submitted.' });
+            }
+        }
         
         student.paymentHistory.push({
             amount: Number(amount),
             paymentMethod: finalPaymentMethod,
             receiptNumber,
-            status: paymentCompleted ? 'Completed' : 'Pending',
-            transactionId: transactionId || '',
+            status: 'Pending',
+            transactionId: normalizedTransactionId || '',
             date: new Date(),
             balanceAfter: 0
         });
@@ -234,7 +242,7 @@ const parentPayFee = async (req, res) => {
         const updatedStudent = await Student.findById(studentId);
 
         res.send({
-            message: 'Payment recorded successfully',
+            message: 'Payment submitted for verification. The school must confirm the payment before it is added to the balance.',
             receiptNumber,
             studentId: updatedStudent._id,
             studentName: updatedStudent.name,

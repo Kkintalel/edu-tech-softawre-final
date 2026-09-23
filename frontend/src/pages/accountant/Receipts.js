@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useSelector } from 'react-redux';
 import axios from 'axios';
 import { Box, Typography, Paper, Table, TableHead, TableRow, TableCell, TableBody, CircularProgress, Alert, Button } from '@mui/material';
-import { getSchoolBranding } from '../../utils/printBranding';
+import { buildPrintBrandingHtml, printBrandingStyles } from '../../utils/printBranding';
 
 const API_BASE_URL = process.env.REACT_APP_BASE_URL || 'http://localhost:5000';
 
@@ -61,7 +61,6 @@ const Receipts = () => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
 
-    const { name: schoolName, logo: schoolLogo, tagline: schoolTagline, address: schoolAddress, phone: schoolPhone, email: schoolEmail, website: schoolWebsite } = getSchoolBranding(currentUser);
     const formattedDate = receipt.date ? new Date(receipt.date).toLocaleDateString('en-KE', { year: 'numeric', month: 'long', day: 'numeric' }) : 'N/A';
     const formattedTime = receipt.date ? new Date(receipt.date).toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit' }) : 'N/A';
     const amountPaid = Number(receipt.amount || 0);
@@ -78,12 +77,12 @@ const Receipts = () => {
           <style>
             @page { size: A4; margin: 12mm; }
             body { font-family: Arial, sans-serif; padding: 0; margin: 0; color: #111827; background: #ffffff; }
+            ${printBrandingStyles}
             .receipt { max-width: 820px; margin: 0 auto; border: 2px solid #d1d5db; border-radius: 12px; padding: 24px; }
             .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #e5e7eb; padding-bottom: 16px; margin-bottom: 16px; }
-            .school-info { flex: 1; }
-            .school-info h2 { margin: 0 0 6px; font-size: 24px; }
-            .school-info p { margin: 3px 0; color: #4b5563; }
-            .header img { max-height: 90px; max-width: 140px; object-fit: contain; margin-bottom: 8px; }
+            .header .school-print-branding { flex: 1; text-align: left; margin: 0; }
+            .header .school-print-branding img { margin-left: 0; }
+            .header .school-print-branding h1 { font-size: 24px; }
             .receipt-title { text-align: center; font-size: 22px; font-weight: bold; letter-spacing: 1px; margin: 8px 0 14px; text-transform: uppercase; }
             .summary-box { padding: 12px 14px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; margin-bottom: 14px; }
             .summary-row { display: flex; justify-content: space-between; margin: 6px 0; }
@@ -101,15 +100,7 @@ const Receipts = () => {
         <body>
           <div class="receipt">
             <div class="header">
-              <div class="school-info">
-                ${schoolLogo ? `<img src="${schoolLogo}" alt="${schoolName} logo" />` : ''}
-                <h2>${schoolName}</h2>
-                ${schoolTagline ? `<p>${schoolTagline}</p>` : ''}
-                ${schoolAddress ? `<p>${schoolAddress}</p>` : ''}
-                ${schoolPhone ? `<p>Phone: ${schoolPhone}</p>` : ''}
-                ${schoolEmail ? `<p>Email: ${schoolEmail}</p>` : ''}
-                ${schoolWebsite ? `<p>Website: ${schoolWebsite}</p>` : ''}
-              </div>
+              ${buildPrintBrandingHtml(currentUser)}
               <div style="text-align:right; min-width:180px;">
                 <div><strong>Receipt No:</strong> ${receipt.receiptNumber}</div>
                 <div><strong>Date:</strong> ${formattedDate}</div>

@@ -101,7 +101,8 @@ const FinancialReport = () => {
     }
 
     const buildReceiptHtml = (student, title, lines, additionalHtml = '') => {
-        const { name: schoolName, logo: schoolLogo, tagline: schoolTagline, address: schoolAddress, phone: schoolPhone, email: schoolEmail, website: schoolWebsite } = getSchoolBranding(currentUser);
+        const branding = getSchoolBranding(currentUser);
+        const schoolName = branding.name;
         return `
             <html>
                 <head>
@@ -109,7 +110,8 @@ const FinancialReport = () => {
                     <style>
                         body { font-family: Arial, sans-serif; margin: 0; padding: 24px; color: #333; }
                         .receipt-header { text-align: center; margin-bottom: 24px; }
-                        .receipt-header img { max-height: 100px; margin-bottom: 12px; }
+                        ${printBrandingStyles}
+                        .receipt-header .school-print-branding { margin-bottom: 0; }
                         .receipt-header h1 { margin: 0; font-size: 26px; }
                         .receipt-header p { margin: 4px 0; color: #555; }
                         .details-table { width: 100%; border-collapse: collapse; margin-bottom: 18px; }
@@ -120,15 +122,7 @@ const FinancialReport = () => {
                     </style>
                 </head>
                 <body>
-                    <div class="receipt-header">
-                        ${schoolLogo ? `<img src="${schoolLogo}" alt="${schoolName} logo" />` : ''}
-                        <h1>${schoolName}</h1>
-                        ${schoolTagline ? `<p>${schoolTagline}</p>` : ''}
-                        ${schoolAddress ? `<p>${schoolAddress}</p>` : ''}
-                        ${schoolPhone ? `<p>Phone: ${schoolPhone}</p>` : ''}
-                        ${schoolEmail ? `<p>Email: ${schoolEmail}</p>` : ''}
-                        ${schoolWebsite ? `<p>Website: ${schoolWebsite}</p>` : ''}
-                    </div>
+                    <div class="receipt-header">${buildPrintBrandingHtml(currentUser)}</div>
                     <div class="section-title">${title}</div>
                     <table class="details-table">
                         ${lines.map(line => `<tr><td class="label">${line.label}</td><td>${line.value}</td></tr>`).join('')}

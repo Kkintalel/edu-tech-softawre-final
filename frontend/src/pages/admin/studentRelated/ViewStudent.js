@@ -470,12 +470,6 @@ const ViewStudent = () => {
         const buildReceiptHtml = () => {
             const branding = getSchoolBranding(currentUser, studentSchool);
             const schoolName = branding.name || 'School Name';
-            const schoolLogo = branding.logo;
-            const schoolTagline = branding.tagline;
-            const schoolPhone = branding.phone || studentSchool?.phone || currentUser?.school?.phone || currentUser?.phone || '';
-            const schoolEmail = branding.email || studentSchool?.email || currentUser?.school?.email || currentUser?.email || '';
-            const schoolAddress = branding.address || studentSchool?.address || currentUser?.school?.address || currentUser?.address || '';
-            const schoolWebsite = branding.website || studentSchool?.website || currentUser?.school?.website || currentUser?.website || '';
             const paidBy = userDetails?.parentName || userDetails?.parent?.name || 'N/A';
             const receiptDate = receipt.date ? new Date(receipt.date).toLocaleString() : new Date().toLocaleString();
             const totalDue = receipt.totalFees ?? userDetails?.totalFees ?? 0;
@@ -490,7 +484,8 @@ const ViewStudent = () => {
                             body { font-family: Arial, sans-serif; margin: 0; padding: 24px; color: #222; }
                             .receipt-wrapper { max-width: 760px; margin: 0 auto; padding: 24px; border: 1px solid #ddd; }
                             .receipt-header { text-align: center; margin-bottom: 20px; }
-                            .receipt-header img { max-height: 80px; margin-bottom: 8px; }
+                            ${printBrandingStyles}
+                            .receipt-header .school-print-branding { margin-bottom: 0; }
                             .receipt-header h1 { margin: 0; font-size: 28px; letter-spacing: 1px; }
                             .receipt-header p { margin: 4px 0; color: #444; }
                             .receipt-title { margin: 24px 0 12px; font-size: 18px; letter-spacing: 0.1em; text-align: center; }
@@ -506,14 +501,7 @@ const ViewStudent = () => {
                     </head>
                     <body>
                         <div class="receipt-wrapper">
-                            <div class="receipt-header">
-                                ${schoolLogo ? `<img src="${schoolLogo}" alt="${schoolName} logo" />` : ''}
-                                <h1>${schoolName}</h1>
-                                ${schoolAddress ? `<p>${schoolAddress}</p>` : ''}
-                                ${schoolPhone ? `<p>Tel: ${schoolPhone}</p>` : ''}
-                                ${schoolEmail ? `<p>Email: ${schoolEmail}</p>` : ''}
-                                ${schoolWebsite ? `<p>Website: ${schoolWebsite}</p>` : ''}
-                            </div>
+                            <div class="receipt-header">${buildPrintBrandingHtml(currentUser, studentSchool)}</div>
 
                             <div class="receipt-title">RECEIPT</div>
 
