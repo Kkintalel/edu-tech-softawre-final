@@ -19,11 +19,12 @@ const AddStudent = ({ situation }) => {
     const { sclassesList } = useSelector((state) => state.sclass);
 
     const [name, setName] = useState('');
+    const [email, setEmail] = useState('');
     const [admissionNo, setAdmissionNo] = useState('');
     const [rollNum, setRollNum] = useState('');
-    const [password, setPassword] = useState('')
     const [className, setClassName] = useState('')
     const [sclassName, setSclassName] = useState('')
+    const [stream, setStream] = useState('')
     const [photo, setPhoto] = useState('');
     const [photoPreview, setPhotoPreview] = useState('');
     const [parentName, setParentName] = useState('');
@@ -82,10 +83,11 @@ const AddStudent = ({ situation }) => {
 
     const fields = {
         name,
+        ...(email.trim() ? { email: email.trim() } : {}),
         admissionNo,
-        rollNum,
-        password,
+        ...(rollNum !== '' ? { rollNum } : {}),
         sclassName,
+        stream: stream.trim(),
         adminID,
         role,
         attendance,
@@ -174,16 +176,25 @@ const AddStudent = ({ situation }) => {
                         </>
                     }
 
+                    <label>Stream (optional)</label>
+                    <input className="registerInput" type="text" placeholder="For example: 8A"
+                        value={stream}
+                        onChange={(event) => setStream(event.target.value)} />
+
                     <label>Admission Number (optional)</label>
-                    <input className="registerInput" type="text" placeholder="Leave blank to auto-generate admission number"
+                    <input className="registerInput" type="text" placeholder="Leave blank to auto-generate; this is the student's login name and initial password"
                         value={admissionNo}
                         onChange={(event) => setAdmissionNo(event.target.value)} />
 
-                    <label>Roll Number</label>
+                    <label>Student Email (optional)</label>
+                    <input className="registerInput" type="email" placeholder="Enter student email if available"
+                        value={email}
+                        onChange={(event) => setEmail(event.target.value)} />
+
+                    <label>Roll Number (optional)</label>
                     <input className="registerInput" type="number" placeholder="Enter student's Roll Number..."
                         value={rollNum}
-                        onChange={(event) => setRollNum(event.target.value)}
-                        required />
+                        onChange={(event) => setRollNum(event.target.value)} />
 
                     <PhotoInput 
                         onPhotoCapture={(imageData) => {
@@ -222,7 +233,7 @@ const AddStudent = ({ situation }) => {
                         onChange={(event) => setParentEmail(event.target.value)}
                     />
                     <p style={{ color: '#555', fontSize: '0.9rem', marginTop: '4px' }}>
-                        Parent portal login uses the parent or guardian email entered here.
+                        Parent portal can use the saved phone number and the student's admission number as the password.
                     </p>
 
                     <label>Parent Phone</label>
@@ -278,12 +289,6 @@ const AddStudent = ({ situation }) => {
                         value={guardianRelation}
                         onChange={(event) => setGuardianRelation(event.target.value)}
                     />
-
-                    <label>Password (optional)</label>
-                    <input className="registerInput" type="password" placeholder="Leave blank to auto-generate a secure password"
-                        value={password}
-                        onChange={(event) => setPassword(event.target.value)}
-                        autoComplete="new-password" />
 
                     <button className="registerButton" type="submit" disabled={loader}>
                         {loader ? (

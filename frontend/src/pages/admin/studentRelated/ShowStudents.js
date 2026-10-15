@@ -5,7 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { getAllStudents, searchStudents } from '../../../redux/studentRelated/studentHandle';
 import { deleteUser } from '../../../redux/userRelated/userHandle';
 import {
-    Paper, Box, IconButton
+    Paper, Box, IconButton, Typography
 } from '@mui/material';
 import PersonRemoveIcon from '@mui/icons-material/PersonRemove';
 import { BlackButton, BlueButton, GreenButton } from '../../../components/buttonStyles';
@@ -40,6 +40,7 @@ const ShowStudents = () => {
 
     const [searchQuery, setSearchQuery] = React.useState('');
     const [searching, setSearching] = React.useState(false);
+    const [searchPerformed, setSearchPerformed] = React.useState(false);
     const [importing, setImporting] = React.useState(false);
     const [importResults, setImportResults] = React.useState(null);
     const fileInputRef = React.useRef(null);
@@ -79,9 +80,11 @@ const ShowStudents = () => {
         const normalizedQuery = searchQuery.trim();
         if (!normalizedQuery) {
             setSearchQuery('');
+            setSearchPerformed(false);
             dispatch(getAllStudents(schoolId, requesterId));
             return;
         }
+        setSearchPerformed(true);
         setSearching(true);
         try {
             await dispatch(searchStudents(schoolId, normalizedQuery, requesterId));
@@ -297,6 +300,9 @@ const ShowStudents = () => {
                     {importing ? 'Importing...' : 'Import Students'}
                 </GreenButton>
             </Box>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: -1.5, mb: 2 }}>
+                Student photos are optional for CSV imports.
+            </Typography>
             {importResults && (
                 <Paper sx={{ p: 2, mb: 2, background: '#f4fdf7', border: '1px solid #d1f0d1' }}>
                     <div style={{ marginBottom: 8, fontWeight: 600 }}>
@@ -329,6 +335,13 @@ const ShowStudents = () => {
                             {Array.isArray(studentsList) && studentsList.length > 0 &&
                                 <TableTemplate buttonHaver={StudentButtonHaver} columns={studentColumns} rows={studentRows} />
                             }
+                            {(!Array.isArray(studentsList) || studentsList.length === 0) && (
+                                <Box sx={{ p: 3, textAlign: 'center' }}>
+                                    <Typography color="text.secondary">
+                                        {searchPerformed ? `No student matched "${searchQuery.trim()}". Check the admission number and try again.` : 'No students found for this school.'}
+                                    </Typography>
+                                </Box>
+                            )}
                             <SpeedDialTemplate actions={actions} />
                         </Paper>
                     }

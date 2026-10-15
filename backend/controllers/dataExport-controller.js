@@ -24,12 +24,16 @@ const clean = (document) => {
 const flattenStudents = (students) => students.flatMap((student) => {
     const base = clean(student);
     const payments = student.paymentHistory || [];
-    if (!payments.length) return [{ record_type: 'student', ...base, paymentHistory: undefined }];
+    const studentFields = {
+        student_name: student.name,
+        student_email: student.email,
+        admission_no: student.admissionNo,
+    };
+    if (!payments.length) return [{ record_type: 'student', ...base, ...studentFields, paymentHistory: undefined }];
     return payments.map((payment) => ({
         record_type: 'student_payment',
         student_id: student._id,
-        student_name: student.name,
-        admission_no: student.admissionNo,
+        ...studentFields,
         total_fees: student.totalFees,
         amount_paid: student.amountPaid,
         balance: student.balance,
@@ -74,7 +78,13 @@ const exportTeacherStudents = async (req, res) => {
         if (!teacher || teacher.role !== 'Teacher') return res.status(403).json({ message: 'Only teachers can export student data' });
         const students = await Student.find({ school: teacher.school, sclassName: teacher.teachSclass }).select('-password -resetPasswordToken -resetPasswordExpires').lean();
         await recordExport(teacher, teacher.school, req, 'teacher_students', students.length);
-        return sendCsv(res, 'assigned-students.csv', students.map((student) => ({ record_type: 'student', ...clean(student) })));
+        return sendCsv(res, 'assigned-students.csv', students.map((student) => ({
+            record_type: 'student',
+            ...clean(student),
+            student_name: student.name,
+            student_email: student.email,
+            admission_no: student.admissionNo,
+        })));
     } catch (error) { return res.status(500).json({ message: 'Student export failed', error: error.message }); }
 };
 
@@ -94,7 +104,7 @@ const exportAccountantData = async (req, res) => {
         const requester = await getRequester(req);
         if (!requester || !['SuperAdmin', 'Admin', 'Accountant'].includes(requester.role)) return res.status(403).json({ message: 'Only Accountant, school Admin, or SuperAdmin can export finance data' });
         const schoolId = getSchoolId(requester);
-        const students = await Student.find({ school: schoolId }).select('name admissionNo rollNum totalFees amountPaid balance paymentStatus paymentHistory').lean();
+        const students = await Student.find({ school: schoolId }).select('name email admissionNo rollNum totalFees amountPaid balance paymentStatus paymentHistory').lean();
         const rows = flattenStudents(students);
         await recordExport(requester, schoolId, req, 'accounting_data', rows.length);
         return sendCsv(res, 'accounting-data.csv', rows);

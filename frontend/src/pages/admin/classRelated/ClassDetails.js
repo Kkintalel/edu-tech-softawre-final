@@ -478,6 +478,13 @@ const ClassDetails = () => {
 
     const TimetableSection = () => {
         const schedule = timetable?.schedule || [];
+        const dayOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+        const periodOrder = Array.from(new Set(schedule.map((entry) => Number(entry.period)).filter((value) => !Number.isNaN(value)))).sort((a, b) => a - b);
+        const entriesByDayAndPeriod = schedule.reduce((map, entry) => {
+            const key = `${entry.day}-${entry.period}`;
+            map[key] = entry;
+            return map;
+        }, {});
 
         return (
             <Box sx={{ mt: 4 }}>
@@ -492,33 +499,74 @@ const ClassDetails = () => {
                     </Typography>
                 )}
                 {schedule.length > 0 ? (
-                    <TableContainer sx={{ mt: 2 }}>
-                        <Table>
-                            <TableHead>
-                                <TableRow>
-                                    <TableCell>Day</TableCell>
-                                    <TableCell>Time</TableCell>
-                                    <TableCell>Period</TableCell>
-                                    <TableCell>Subject</TableCell>
-                                    <TableCell>Teacher</TableCell>
-                                </TableRow>
-                            </TableHead>
-                            <TableBody>
-                                {schedule.sort((a, b) => {
-                                    const dayOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
-                                    return dayOrder.indexOf(a.day) - dayOrder.indexOf(b.day) || a.period - b.period;
-                                }).map((entry, index) => (
-                                    <TableRow key={index}>
-                                        <TableCell>{entry.day}</TableCell>
-                                        <TableCell>{getTimetableTime(entry)}</TableCell>
-                                        <TableCell>{entry.period}</TableCell>
-                                        <TableCell>{entry.subjectName}</TableCell>
-                                        <TableCell>{entry.teacherName}</TableCell>
-                                    </TableRow>
-                                ))}
-                            </TableBody>
-                        </Table>
-                    </TableContainer>
+                    <Box sx={{ mt: 2, overflowX: 'auto' }}>
+                        <Box
+                            sx={{
+                                display: 'grid',
+                                gridTemplateColumns: '100px repeat(5, minmax(150px, 1fr))',
+                                minWidth: 900,
+                                border: '1px solid #e0e0e0',
+                                borderRadius: 2,
+                                overflow: 'hidden',
+                                backgroundColor: '#fff',
+                            }}
+                        >
+                            <Box sx={{ p: 1.5, fontWeight: 700, borderRight: '1px solid #e0e0e0', borderBottom: '1px solid #e0e0e0', backgroundColor: '#f5f7fb' }}>
+                                Period
+                            </Box>
+                            {dayOrder.map((day) => (
+                                <Box key={day} sx={{ p: 1.5, fontWeight: 700, textAlign: 'center', borderBottom: '1px solid #e0e0e0', backgroundColor: '#f5f7fb' }}>
+                                    {day}
+                                </Box>
+                            ))}
+
+                            {(periodOrder.length ? periodOrder : [1,2,3,4,5,6,7,8,9,10,11]).map((period) => (
+                                <Box key={`period-row-${period}`} sx={{ display: 'contents' }}>
+                                    <Box sx={{ p: 1.5, borderRight: '1px solid #e0e0e0', borderBottom: '1px solid #e0e0e0', backgroundColor: '#fafafa', fontWeight: 600 }}>
+                                        {`P${period}`}<br />
+                                        <Typography variant="caption" color="text.secondary">
+                                            {(() => {
+                                                const entry = schedule.find((item) => Number(item.period) === Number(period));
+                                                return entry ? getTimetableTime(entry) : '—';
+                                            })()}
+                                        </Typography>
+                                    </Box>
+                                    {dayOrder.map((day) => {
+                                        const entry = entriesByDayAndPeriod[`${day}-${period}`];
+                                        const isBreak = entry?.slotType === 'break' || entry?.slotType === 'lunch';
+                                        const isFree = !entry || entry.subjectName === 'Free Period' || !entry.subjectName;
+
+                                        return (
+                                            <Box
+                                                key={`${day}-${period}`}
+                                                sx={{
+                                                    p: 1.5,
+                                                    minHeight: 100,
+                                                    borderRight: '1px solid #e0e0e0',
+                                                    borderBottom: '1px solid #e0e0e0',
+                                                    backgroundColor: isBreak ? '#f3f4f6' : isFree ? '#fdfdfd' : '#e9f7ef',
+                                                    display: 'flex',
+                                                    flexDirection: 'column',
+                                                    justifyContent: 'center',
+                                                    alignItems: 'center',
+                                                    textAlign: 'center',
+                                                }}
+                                            >
+                                                <Typography variant="subtitle2" sx={{ fontWeight: 700, color: isBreak ? 'text.secondary' : 'text.primary' }}>
+                                                    {entry?.subjectName || 'Free'}
+                                                </Typography>
+                                                {!isBreak && !isFree && (
+                                                    <Typography variant="caption" color="text.secondary">
+                                                        {entry?.teacherName || 'Unassigned'}
+                                                    </Typography>
+                                                )}
+                                            </Box>
+                                        );
+                                    })}
+                                </Box>
+                            ))}
+                        </Box>
+                    </Box>
                 ) : (
                     !timetableLoading && <Typography sx={{ mt: 2 }}>No timetable yet. Generate one to see the schedule.</Typography>
                 )}

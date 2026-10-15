@@ -3,8 +3,11 @@ const bcrypt = require('bcrypt');
 const Parent = require('../models/parentSchema');
 const Student = require('../models/studentSchema');
 const Settings = require('../models/settingsSchema');
-const { verifyEntityBelongsToAdminSchool } = require('../middleware/schoolAccess');
+const School = require('../models/schoolSchema');
+const { getRequestUser } = require('../middleware/schoolAccess');
+const { issueAdminToken } = require('../utils/authToken');
 const { initiateStkPush, queryStkPushStatus } = require('../services/mpesaService');
+const { tagPaymentWithAcademicPeriod } = require('../utils/academicPeriod');
 
 const GRADING_TABLES = {
     achievement: [
@@ -31,16 +34,130 @@ const getComputedResult = (result = {}) => {
     return { ...result, gradingSystem, ...grade };
 };
 
-// Parent Login - authenticate with admission number, parent email, and password
+const normalizeParentPhone = (value) => {
+    const digits = (value || '').toString().replace(/\D/g, '');
+    return digits.startsWith('254') && digits.length === 12
+        ? `0${digits.slice(3)}`
+        : digits;
+};
+
+const getParentContactByIdentifier = (student, identifierType, identifier) => {
+    const contacts = [
+        { email: student.parentEmail, phone: student.parentPhone, name: student.parentName },
+        { email: student.guardianEmail, phone: student.guardianPhone, name: student.guardianName },
+    ].map((contact) => ({
+        email: (contact.email || '').trim().toLowerCase(),
+        phone: (contact.phone || '').trim(),
+        name: contact.name || '',
+    }));
+
+    if (identifierType === 'phone') {
+        const normalizedPhone = normalizeParentPhone(identifier);
+        return contacts.find((contact) => contact.phone && normalizeParentPhone(contact.phone) === normalizedPhone) || null;
+    }
+
+    const normalizedEmail = (identifier || '').trim().toLowerCase();
+    return contacts.find((contact) => contact.email && contact.email === normalizedEmail) || null;
+};
+
+const getParentOwnedStudent = async (req, res, studentId) => {
+    const requestUser = await getRequestUser(req);
+    if (!requestUser) {
+        res.status(401).send({ message: 'Parent login is required' });
+        return null;
+    }
+    if (requestUser.type !== 'parent') {
+        res.status(403).send({ message: 'Parent access is required' });
+        return null;
+    }
+
+    const ownStudentId = String(requestUser.user.studentId || '');
+    if (!ownStudentId || (studentId && String(studentId) !== ownStudentId)) {
+        res.status(403).send({ message: 'Parents can only access their linked student' });
+        return null;
+    }
+
+    const student = await Student.findById(ownStudentId);
+    if (!student) {
+        res.status(404).send({ message: 'Student not found' });
+        return null;
+    }
+    if (String(student.school) !== String(requestUser.schoolId)) {
+        res.status(403).send({ message: 'Student belongs to a different school' });
+        return null;
+    }
+    return student;
+};
+
+const getStudentSchoolBranding = async (student) => {
+    const schoolAdminId = student.school?._id || student.school;
+    const school = await School.findOne({ $or: [{ _id: schoolAdminId }, { schoolAdmin: schoolAdminId }] }).select('_id');
+    return Settings.findOne({ school: school?._id || schoolAdminId }).select('branding schoolProfile receiptSettings');
+};
+
+// Parent Login - authenticate with admission number, parent email or phone, and password
 const parentLogIn = async (req, res) => {
     try {
-        let { admissionNo, parentEmail, guardianEmail, password } = req.body;
-        const loginEmail = parentEmail || guardianEmail;
-        const normalizedParentEmail = loginEmail?.trim().toLowerCase();
+        const phoneIdentifier = req.body.phone || (req.body.identifierType === 'phone' ? req.body.identifier : '');
+        if (phoneIdentifier && !req.body.admissionNo) {
+            const normalizedPhone = normalizeParentPhone(phoneIdentifier);
+            const matchingStudent = await Student.findOne({ admissionNo: req.body.password });
+            if (!matchingStudent) {
+                return res.status(401).send({ message: 'Phone number and student admission number do not match' });
+            }
+            const contact = getParentContactByIdentifier(matchingStudent, 'phone', phoneIdentifier);
+            if (!contact) {
+                return res.status(401).send({ message: 'Phone number and student admission number do not match' });
+            }
+
+            await matchingStudent.populate('school', 'schoolName');
+            await matchingStudent.populate('sclassName', 'sclassName');
+            const existingParent = await Parent.findOne({ studentId: matchingStudent._id, school: matchingStudent.school?._id || matchingStudent.school });
+            const studentData = matchingStudent.toObject({ getters: true });
+            const schoolSettings = await getStudentSchoolBranding(matchingStudent);
+            let parent = existingParent;
+            if (!parent) {
+                parent = new Parent({
+                    email: contact.email || `parent-${matchingStudent._id}@portal.local`,
+                    password: await bcrypt.hash(matchingStudent.admissionNo, 10),
+                    name: contact.name || `${studentData.name} Parent`,
+                    phone: contact.phone || phoneIdentifier,
+                    studentId: matchingStudent._id,
+                    school: studentData.school?._id || studentData.school,
+                    role: 'Parent',
+                });
+                await parent.save();
+            }
+            const parentData = parent.toObject({ getters: true });
+            delete parentData.password;
+            parentData.token = issueAdminToken(parentData);
+
+            return res.send({
+                ...parentData,
+                student: {
+                    id: studentData._id,
+                    name: studentData.name,
+                    admissionNo: studentData.admissionNo,
+                    rollNum: studentData.rollNum,
+                    classId: studentData.sclassName?._id || null,
+                    className: studentData.sclassName?.sclassName || null,
+                    totalFees: studentData.totalFees,
+                    amountPaid: studentData.amountPaid,
+                    balance: studentData.balance,
+                    paymentStatus: studentData.paymentStatus,
+                },
+                school: studentData.school,
+                settings: schoolSettings,
+            });
+        }
+
+        const { admissionNo, parentEmail, guardianEmail, identifier, identifierType, password } = req.body;
+        const loginIdentifier = identifier || parentEmail || guardianEmail;
+        const loginIdentifierType = identifierType || (loginIdentifier?.includes('@') ? 'email' : 'phone');
         const normalizedAdmissionNo = admissionNo?.toString().trim();
 
-        if (!normalizedParentEmail || !normalizedAdmissionNo || !password) {
-            return res.status(400).send({ message: 'Parent or guardian email, student admission number, and password are required' });
+        if (!loginIdentifier || !normalizedAdmissionNo || !password) {
+            return res.status(400).send({ message: 'Parent or guardian email or phone number, student admission number, and password are required' });
         }
 
         const student = await Student.findOne({ admissionNo: normalizedAdmissionNo })
@@ -51,13 +168,23 @@ const parentLogIn = async (req, res) => {
             return res.status(404).send({ message: 'Student not found with the provided identifier' });
         }
 
-        const studentParentEmail = student.parentEmail?.trim().toLowerCase();
-        const studentGuardianEmail = student.guardianEmail?.trim().toLowerCase();
-        const validEmails = [studentParentEmail, studentGuardianEmail].filter(Boolean);
-
-        if (!validEmails.includes(normalizedParentEmail)) {
-            return res.status(401).send({ message: 'Parent or guardian email does not match this student' });
+        if (!['email', 'phone'].includes(loginIdentifierType)) {
+            return res.status(400).send({ message: 'Choose email or phone number as the login method' });
         }
+
+        const matchedContact = getParentContactByIdentifier(student, loginIdentifierType, loginIdentifier);
+        if (!matchedContact) {
+            const message = loginIdentifierType === 'phone'
+                ? 'Parent or guardian phone number does not match this student'
+                : 'Parent or guardian email does not match this student';
+            return res.status(401).send({ message });
+        }
+
+        if (!matchedContact.email) {
+            return res.status(400).send({ message: 'A parent or guardian email must also be saved for this student before portal access can be set up' });
+        }
+
+        const normalizedParentEmail = matchedContact.email;
 
         const schoolId = student.school?._id || student.school;
         let parent = await Parent.findOne({ email: normalizedParentEmail, school: schoolId });
@@ -67,8 +194,8 @@ const parentLogIn = async (req, res) => {
             parent = new Parent({
                 email: normalizedParentEmail,
                 password: hashedPassword,
-                name: student.parentName || student.guardianName || student.name || 'Parent/Guardian',
-                phone: student.parentPhone || student.guardianPhone,
+                name: matchedContact.name || student.name || 'Parent/Guardian',
+                phone: matchedContact.phone,
                 studentId: student._id,
                 school: schoolId,
                 role: 'Parent'
@@ -97,9 +224,12 @@ const parentLogIn = async (req, res) => {
         const parentData = parent.toObject({ getters: true });
         delete parentData.password;
         const studentObj = student.toObject({ getters: true });
+        const schoolSettings = await getStudentSchoolBranding(student);
 
         res.send({
             ...parentData,
+            token: issueAdminToken(parentData),
+            settings: schoolSettings,
             student: {
                 id: studentObj._id,
                 name: studentObj.name,
@@ -124,28 +254,9 @@ const parentLogIn = async (req, res) => {
 const getStudentFeeInfo = async (req, res) => {
     try {
         const studentId = req.params.studentId || req.query.studentId || req.body.studentId;
-        const parentEmail = req.query.parentEmail?.trim().toLowerCase();
-
-        if (!studentId || !parentEmail) {
-            return res.status(400).send({ message: 'Student ID and parent email required' });
-        }
-
-        const student = await Student.findById(studentId)
-            .populate("sclassName", "sclassName");
-
-        if (!student) {
-            return res.status(404).send({ message: 'Student not found' });
-        }
-
-        const studentParentEmail = student.parentEmail?.trim().toLowerCase();
-        const studentGuardianEmail = student.guardianEmail?.trim().toLowerCase();
-        const studentEmail = student.email?.trim().toLowerCase();
-        const validEmails = [studentParentEmail, studentGuardianEmail, studentEmail].filter(Boolean);
-
-        // Verify the parent email matches one of the stored student contact emails
-        if (!validEmails.includes(parentEmail)) {
-            return res.status(403).send({ message: 'Unauthorized access' });
-        }
+        const student = await getParentOwnedStudent(req, res, studentId);
+        if (!student) return;
+        await student.populate('sclassName', 'sclassName');
 
         res.send({
             id: student._id || student.id,
@@ -170,29 +281,15 @@ const getStudentFeeInfo = async (req, res) => {
 const parentPayFee = async (req, res) => {
     try {
         const studentId = req.params.studentId || req.body.studentId || req.query.studentId;
-        const { amount, paymentMethod, parentEmail, transactionId } = req.body;
-        const normalizedParentEmail = parentEmail?.trim().toLowerCase();
+        const { amount, paymentMethod, transactionId } = req.body;
         const normalizedTransactionId = transactionId?.trim();
 
         if (!amount || Number(amount) <= 0) {
             return res.status(400).send({ message: 'Please enter a valid payment amount' });
         }
 
-        const student = await Student.findById(studentId);
-
-        if (!student) {
-            return res.status(404).send({ message: 'Student not found' });
-        }
-
-        const studentParentEmail = student.parentEmail?.trim().toLowerCase();
-        const studentGuardianEmail = student.guardianEmail?.trim().toLowerCase();
-        const studentEmail = student.email?.trim().toLowerCase();
-        const validEmails = [studentParentEmail, studentGuardianEmail, studentEmail].filter(Boolean);
-
-        // Verify parent email
-        if (!validEmails.includes(normalizedParentEmail)) {
-            return res.status(403).send({ message: 'Unauthorized payment attempt' });
-        }
+        const student = await getParentOwnedStudent(req, res, studentId);
+        if (!student) return;
 
         // Generate receipt number
         const receiptNumber = `RCPT-${student.admissionNo || student.rollNum}-${Date.now()}`;
@@ -222,6 +319,7 @@ const parentPayFee = async (req, res) => {
             date: new Date(),
             balanceAfter: 0
         });
+        await tagPaymentWithAcademicPeriod(student, student.paymentHistory[student.paymentHistory.length - 1]);
 
         const history = Array.isArray(student.paymentHistory) ? student.paymentHistory : [];
         const currentPeriod = student.feePeriodKey || 'initial';
@@ -260,19 +358,9 @@ const parentPayFee = async (req, res) => {
 // Get parent's children/students
 const getParentStudents = async (req, res) => {
     try {
-        const parentEmail = req.params.parentEmail?.trim().toLowerCase();
-
-        const students = await Student.find({
-            $or: [
-                { parentEmail: parentEmail },
-                { guardianEmail: parentEmail },
-                { email: parentEmail }
-            ]
-        }).select('-password');
-
-        if (students.length === 0) {
-            return res.status(404).send({ message: 'No students found for this parent' });
-        }
+        const student = await getParentOwnedStudent(req, res);
+        if (!student) return;
+        const students = [student];
 
         const studentData = students.map((s) => {
             const studentObj = s && typeof s.toObject === 'function' ? s.toObject({ getters: true }) : s;
@@ -300,24 +388,14 @@ const getParentStudents = async (req, res) => {
 const getParentStudentProgress = async (req, res) => {
     try {
         const studentId = req.params.studentId || req.query.studentId || req.body.studentId;
-        const parentEmail = req.query.parentEmail?.trim().toLowerCase() || req.body.parentEmail?.trim().toLowerCase();
-
-        if (!studentId || !parentEmail) {
-            return res.status(400).send({ message: 'Student ID and parent email are required' });
-        }
-
-        const student = await Student.findById(studentId)
-            .populate('sclassName', 'sclassName')
-            .populate({ path: 'examResult.subName', select: 'subName teacher', populate: { path: 'teacher', select: 'name' } })
-            .select('-password');
+        const student = await getParentOwnedStudent(req, res, studentId);
+        if (!student) return;
+        await student.populate('sclassName', 'sclassName');
+        await student.populate({ path: 'examResult.subName', select: 'subName teacher', populate: { path: 'teacher', select: 'name' } });
+        await student.select?.('-password');
 
         if (!student) {
             return res.status(404).send({ message: 'Student not found' });
-        }
-
-        const validEmails = [student.parentEmail, student.guardianEmail, student.email].filter(Boolean).map((value) => value.trim().toLowerCase());
-        if (!validEmails.includes(parentEmail)) {
-            return res.status(403).send({ message: 'Unauthorized access to this student report' });
         }
 
         const examResult = (student.examResult || []).map((result) => ({
@@ -367,8 +445,7 @@ const getParentStudentProgress = async (req, res) => {
 const initiateStk = async (req, res) => {
     try {
         const { studentId } = req.params;
-        const { amount, phoneNumber, parentEmail } = req.body;
-        const normalizedParentEmail = parentEmail?.trim().toLowerCase();
+        const { amount, phoneNumber } = req.body;
 
         if (!amount || Number(amount) <= 0) {
             return res.status(400).send({ message: 'Please enter a valid payment amount' });
@@ -378,21 +455,8 @@ const initiateStk = async (req, res) => {
             return res.status(400).send({ message: 'Phone number is required' });
         }
 
-        const student = await Student.findById(studentId);
-
-        if (!student) {
-            return res.status(404).send({ message: 'Student not found' });
-        }
-
-        // Verify parent email
-        const studentParentEmail = student.parentEmail?.trim().toLowerCase();
-        const studentGuardianEmail = student.guardianEmail?.trim().toLowerCase();
-        const studentEmail = student.email?.trim().toLowerCase();
-        const validEmails = [studentParentEmail, studentGuardianEmail, studentEmail].filter(Boolean);
-
-        if (!validEmails.includes(normalizedParentEmail)) {
-            return res.status(403).send({ message: 'Unauthorized payment attempt' });
-        }
+        const student = await getParentOwnedStudent(req, res, studentId);
+        if (!student) return;
 
         const schoolSettings = await Settings.findOne({ school: student.school }).select('mpesaSettings');
         const mpesaSettings = schoolSettings?.mpesaSettings;
@@ -424,6 +488,7 @@ const initiateStk = async (req, res) => {
             date: new Date(),
             balanceAfter: student.balance
         });
+        await tagPaymentWithAcademicPeriod(student, student.paymentHistory[student.paymentHistory.length - 1]);
 
         await student.save();
 
@@ -445,26 +510,14 @@ const initiateStk = async (req, res) => {
 const mockInitiateStk = async (req, res) => {
     try {
         const { studentId } = req.params;
-        const { amount, parentEmail, phoneNumber } = req.body;
-        const normalizedParentEmail = parentEmail?.trim().toLowerCase();
+        const { amount, phoneNumber } = req.body;
 
         if (!amount || Number(amount) <= 0) {
             return res.status(400).send({ message: 'Please enter a valid payment amount' });
         }
 
-        const student = await Student.findById(studentId);
-        if (!student) {
-            return res.status(404).send({ message: 'Student not found' });
-        }
-
-        const studentParentEmail = student.parentEmail?.trim().toLowerCase();
-        const studentGuardianEmail = student.guardianEmail?.trim().toLowerCase();
-        const studentEmail = student.email?.trim().toLowerCase();
-        const validEmails = [studentParentEmail, studentGuardianEmail, studentEmail].filter(Boolean);
-
-        if (!validEmails.includes(normalizedParentEmail)) {
-            return res.status(403).send({ message: 'Unauthorized payment attempt' });
-        }
+        const student = await getParentOwnedStudent(req, res, studentId);
+        if (!student) return;
 
         const checkoutRequestId = `MOCK_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
         const receiptNumber = `MOCK-STK-${student.admissionNo || student.rollNum}-${Date.now()}`;
@@ -480,6 +533,7 @@ const mockInitiateStk = async (req, res) => {
             balanceAfter: student.balance,
             phoneNumber: phoneNumber || ''
         });
+        await tagPaymentWithAcademicPeriod(student, student.paymentHistory[student.paymentHistory.length - 1]);
 
         await student.save();
 
@@ -499,10 +553,8 @@ const checkStkStatus = async (req, res) => {
             return res.status(400).send({ message: 'Checkout request ID is required' });
         }
 
-        const student = await Student.findById(studentId);
-        if (!student) {
-            return res.status(404).send({ message: 'Student not found' });
-        }
+        const student = await getParentOwnedStudent(req, res, studentId);
+        if (!student) return;
 
         const schoolSettings = await Settings.findOne({ school: student.school }).select('mpesaSettings');
         const mpesaSettings = schoolSettings?.mpesaSettings;
@@ -728,6 +780,7 @@ const mpesaCallback = async (req, res) => {
 };
 
 module.exports = {
+    getParentContactByIdentifier,
     parentLogIn,
     getStudentFeeInfo,
     parentPayFee,

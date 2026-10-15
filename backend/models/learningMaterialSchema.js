@@ -9,6 +9,11 @@ const learningMaterialSchema = new mongoose.Schema({
         type: String,
         default: '',
     },
+    topic: {
+        type: String,
+        default: '',
+        trim: true,
+    },
     material_type: {
         type: String,
         enum: ['Note', 'PDF', 'PPT', 'Document', 'Video'],
@@ -69,5 +74,7 @@ const learningMaterialSchema = new mongoose.Schema({
         default: '',
     },
 }, { timestamps: true });
+
+learningMaterialSchema.index({ school: 1, class: 1, subject: 1, topic: 1, createdAt: -1 });
 
 module.exports = mongoose.model('learningmaterial', learningMaterialSchema);

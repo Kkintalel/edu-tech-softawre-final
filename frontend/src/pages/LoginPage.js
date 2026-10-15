@@ -39,25 +39,17 @@ const LoginPage = ({ role }) => {
 
     const [emailError, setEmailError] = useState(false);
     const [passwordError, setPasswordError] = useState(false);
-    const [admissionNumberError, setAdmissionNumberError] = useState(false);
-    const [studentNameError, setStudentNameError] = useState(false);
 
     const handleSubmit = (event) => {
         event.preventDefault();
 
         if (role === "Student") {
-            const email = event.target.email?.value;
-            const admissionNo = event.target.admissionNumber?.value;
-            const studentName = event.target.studentName?.value;
+            const identifier = event.target.studentIdentifier?.value?.trim();
             const password = event.target.password.value;
 
-            if (!email && !admissionNo) {
-                setMessage('Please enter your student email or admission number');
+            if (!identifier) {
+                setMessage('Please enter your admission number');
                 setShowPopup(true);
-                return;
-            }
-            if (!studentName) {
-                setStudentNameError(true);
                 return;
             }
             if (!password) {
@@ -65,7 +57,7 @@ const LoginPage = ({ role }) => {
                 return;
             }
 
-            const fields = { email: email?.trim().toLowerCase(), admissionNo, studentName, password };
+            const fields = { admissionNo: identifier, password };
             setLoader(true);
             dispatch(loginUser(fields, role));
         }
@@ -145,8 +137,6 @@ const LoginPage = ({ role }) => {
         const { name } = event.target;
         if (name === 'email') setEmailError(false);
         if (name === 'password') setPasswordError(false);
-        if (name === 'admissionNumber') setAdmissionNumberError(false);
-        if (name === 'studentName') setStudentNameError(false);
     };
 
     const getPortalPath = (userRole) => {
@@ -310,41 +300,14 @@ const LoginPage = ({ role }) => {
                                     <TextField
                                         margin="normal"
                                         fullWidth
-                                        id="email"
-                                        label="Enter your student email"
-                                        name="email"
-                                        autoComplete="email"
-                                        type="email"
-                                        error={emailError}
-                                        helperText={emailError && 'Email is required'}
-                                        onChange={handleInputChange}
-                                    />
-                                    <Typography variant="body2" sx={{ mt: 1, mb: 2, color: '#555' }}>
-                                        Or use Admission Number and Name to login.
-                                    </Typography>
-                                    <TextField
-                                        margin="normal"
-                                        fullWidth
-                                        id="admissionNumber"
+                                        id="studentIdentifier"
                                         label="Admission Number"
-                                        name="admissionNumber"
-                                        autoComplete="off"
+                                        name="studentIdentifier"
+                                        autoComplete="username"
                                         type="text"
-                                        error={admissionNumberError}
-                                        helperText={admissionNumberError && 'Admission Number is required'}
+                                        autoFocus
                                         onChange={handleInputChange}
-                                    />
-                                    <TextField
-                                        margin="normal"
-                                        required
-                                        fullWidth
-                                        id="studentName"
-                                        label="Student Name"
-                                        name="studentName"
-                                        autoComplete="name"
-                                        error={studentNameError}
-                                        helperText={studentNameError && 'Name is required'}
-                                        onChange={handleInputChange}
+                                        helperText="Use the student's admission number as both username and initial password."
                                     />
                                 </>
                             ) : (

@@ -127,7 +127,7 @@ const sendMessageToStudent = async (req, res) => {
         // Send SMS if required
         if ((messageType === 'SMS' || messageType === 'Both') && student.phone) {
             try {
-                const smsResult = await sendSMS(student.phone, messageBody);
+                const smsResult = await sendSMS(student.phone, messageBody, student.school);
                 message.deliveryStatus.sms = smsResult.success ? 'Sent' : 'Failed';
                 message.deliveryStatus.smsSentAt = new Date();
                 if (!smsResult.success) {
@@ -207,7 +207,7 @@ const sendMessageToParent = async (req, res) => {
         // Send SMS if required
         if ((messageType === 'SMS' || messageType === 'Both') && parent.phone) {
             try {
-                const smsResult = await sendSMS(parent.phone, messageBody);
+                const smsResult = await sendSMS(parent.phone, messageBody, parent.school);
                 message.deliveryStatus.sms = smsResult.success ? 'Sent' : 'Failed';
                 message.deliveryStatus.smsSentAt = new Date();
                 if (!smsResult.success) {
@@ -287,7 +287,7 @@ const sendMessageToAdminUser = async (req, res) => {
 
         if ((messageType === 'SMS' || messageType === 'Both') && recipient.phone) {
             try {
-                const smsResult = await sendSMS(recipient.phone, messageBody);
+                const smsResult = await sendSMS(recipient.phone, messageBody, recipient.school);
                 message.deliveryStatus.sms = smsResult.success ? 'Sent' : 'Failed';
                 message.deliveryStatus.smsSentAt = new Date();
                 if (!smsResult.success) {
@@ -383,7 +383,7 @@ const sendBulkMessageToStudents = async (req, res) => {
             // Send SMS if required
             if ((messageType === 'SMS' || messageType === 'Both') && recipient.phone) {
                 try {
-                    const smsResult = await sendSMS(recipient.phone, messageBody);
+                    const smsResult = await sendSMS(recipient.phone, messageBody, recipient.school);
                     if (smsResult?.success) {
                         sentCount++;
                     } else {
@@ -499,7 +499,7 @@ const sendBulkMessageToParents = async (req, res) => {
             // Send SMS if required
             if ((messageType === 'SMS' || messageType === 'Both') && recipient.phone) {
                 try {
-                    const smsResult = await sendSMS(recipient.phone, messageBody);
+                    const smsResult = await sendSMS(recipient.phone, messageBody, recipient.school);
                     if (smsResult?.success) {
                         sentCount++;
                     } else {

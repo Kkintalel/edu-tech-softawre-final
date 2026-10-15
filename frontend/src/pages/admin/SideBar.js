@@ -25,6 +25,7 @@ import HistoryIcon from '@mui/icons-material/History';
 import TimelineIcon from '@mui/icons-material/Timeline';
 import CardMembershipOutlinedIcon from '@mui/icons-material/CardMembershipOutlined';
 import MenuBookOutlinedIcon from '@mui/icons-material/MenuBookOutlined';
+import EventNoteIcon from '@mui/icons-material/EventNote';
 
 const SideBar = () => {
     const location = useLocation();
@@ -145,11 +146,23 @@ const SideBar = () => {
                     </ListItemIcon>
                     <ListItemText primary="Academic Report" />
                 </ListItemButton>
+                <ListItemButton component={Link} to="/Admin/reports/analytics">
+                    <ListItemIcon>
+                        <ReportIcon color={location.pathname.startsWith("/Admin/reports/analytics") ? 'primary' : 'inherit'} />
+                    </ListItemIcon>
+                    <ListItemText primary="School Analytics" />
+                </ListItemButton>
                 <ListItemButton component={Link} to="/Admin/reports/financial">
                     <ListItemIcon>
                         <AccountBalanceIcon color={location.pathname.startsWith("/Admin/reports/financial") ? 'primary' : 'inherit'} />
                     </ListItemIcon>
                     <ListItemText primary="Financial Report" />
+                </ListItemButton>
+                <ListItemButton component={Link} to="/Admin/budgets">
+                    <ListItemIcon>
+                        <AccountBalanceIcon color={location.pathname.startsWith('/Admin/budgets') ? 'primary' : 'inherit'} />
+                    </ListItemIcon>
+                    <ListItemText primary="Budget Management" />
                 </ListItemButton>
                 <ListItemButton component={Link} to="/Admin/user-guides">
                     <ListItemIcon>
@@ -181,6 +194,12 @@ const SideBar = () => {
                 )}
                 {isSuperAdmin && (
                     <>
+                        <ListItemButton component={Link} to="/Admin/demo-requests">
+                            <ListItemIcon>
+                                <EventNoteIcon color={location.pathname.startsWith('/Admin/demo-requests') ? 'primary' : 'inherit'} />
+                            </ListItemIcon>
+                            <ListItemText primary="Demo Requests" />
+                        </ListItemButton>
                         <ListItemButton component={Link} to="/Admin/school-subscriptions">
                             <ListItemIcon>
                                 <CardMembershipOutlinedIcon color={location.pathname.startsWith('/Admin/school-subscriptions') ? 'primary' : 'inherit'} />

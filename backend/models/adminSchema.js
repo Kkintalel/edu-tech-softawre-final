@@ -16,7 +16,7 @@ const adminSchema = new mongoose.Schema({
     },
     role: {
         type: String,
-        enum: ['SuperAdmin', 'Admin', 'Accountant', 'HR'],
+        enum: ['SuperAdmin', 'Admin', 'Accountant', 'HR', 'Auditor'],
         default: "Admin"
     },
     approved: {
@@ -152,7 +152,7 @@ const adminSchema = new mongoose.Schema({
         }
     },
     roles: {
-        type: [{ type: String, enum: ['SuperAdmin', 'Admin', 'Accountant', 'HR'] }],
+        type: [{ type: String, enum: ['SuperAdmin', 'Admin', 'Accountant', 'HR', 'Auditor'] }],
         default: ['Admin']
     },
     permissions: {

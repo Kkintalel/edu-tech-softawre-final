@@ -43,6 +43,51 @@ const getAuditContextFromReq = (req) => {
     };
 };
 
+const buildAuditNote = ({ action, entityType, entityName, changedFields = [] }) => {
+    const entity = entityName
+        ? `${entityType || 'record'} "${entityName}"`
+        : entityType || 'record';
+    const noteByAction = {
+        LOGIN: 'User signed in',
+        LOGOUT: 'User signed out',
+        CREATE: `Created ${entity}`,
+        READ: `Viewed ${entity}`,
+        UPDATE: `Updated ${entity}`,
+        DELETE: `Deleted ${entity}`,
+        DOWNLOAD: `Downloaded ${entity}`,
+        UPLOAD: `Uploaded ${entity}`,
+        EXPORT: `Exported ${entity}`,
+        IMPORT: `Imported ${entity}`,
+        PUBLISH: `Published ${entity}`,
+        APPROVE: `Approved ${entity}`,
+        REJECT: `Rejected ${entity}`,
+        RESET_PASSWORD: `Reset password for ${entity}`,
+        CHANGE_PASSWORD: `Changed password for ${entity}`,
+        ENABLE_2FA: `Enabled two-factor authentication for ${entity}`,
+        DISABLE_2FA: `Disabled two-factor authentication for ${entity}`,
+        BACKUP_START: `Started backup for ${entity}`,
+        BACKUP_COMPLETE: `Completed backup for ${entity}`,
+        RESTORE_START: `Started restore for ${entity}`,
+        RESTORE_COMPLETE: `Completed restore for ${entity}`,
+        SETTINGS_CHANGE: `Updated ${entity}`,
+        ACCESS_DENIED: `Access was denied for ${entity}`,
+        SYSTEM_ERROR: `A system error occurred for ${entity}`,
+        CONFIGURATION_CHANGE: `Changed configuration for ${entity}`,
+        BULK_OPERATION: `Completed a bulk operation for ${entity}`,
+        INTEGRATION_CALL: `Called an integration for ${entity}`,
+        REPORT_GENERATED: `Generated ${entity}`,
+        EMAIL_SENT: `Sent email for ${entity}`,
+        SMS_SENT: `Sent SMS for ${entity}`,
+        PAYMENT_PROCESSED: `Processed payment for ${entity}`,
+    };
+    const note = noteByAction[action] || `Recorded ${String(action || 'audit activity').toLowerCase().replace(/_/g, ' ')} for ${entity}`;
+    const fields = action === 'UPDATE' && Array.isArray(changedFields) && changedFields.length
+        ? `. Changed fields: ${changedFields.join(', ')}.`
+        : '.';
+
+    return `${note}${fields}`;
+};
+
 /**
  * Log an audit action
  */
@@ -106,7 +151,7 @@ const logAuditAction = async (auditData) => {
             status,
             statusCode,
             errorMessage,
-            resultMessage,
+            resultMessage: resultMessage || buildAuditNote({ action, entityType, entityName, changedFields }),
             context: finalContext,
             metadata,
             sensitivity,

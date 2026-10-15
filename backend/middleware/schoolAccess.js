@@ -109,7 +109,7 @@ const getRequestUser = async (req) => {
     // Validate ObjectId before querying to avoid Cast errors
     if (!mongoose.Types.ObjectId.isValid(userId)) return null;
 
-    const admin = await Admin.findById(userId).select('role roles school schoolId schoolName');
+    const admin = await Admin.findById(userId).select('role roles school schoolId schoolName permissions');
     if (admin) {
         let schoolId = getAdminSchoolId(admin);
         if (!schoolId && ['Accountant', 'HR'].includes(admin.role) && admin.schoolName) {
@@ -122,18 +122,18 @@ const getRequestUser = async (req) => {
         return { type: 'admin', user: admin, schoolId, school };
     }
 
-    const teacher = await Teacher.findById(userId).select('school');
+    const teacher = await Teacher.findById(userId).select('school teachSubject teachSubjects teachSclass teachSclasses role');
     if (teacher) {
         const schoolId = resolveEntitySchoolId(teacher, 'school');
         return { type: 'teacher', user: teacher, schoolId, school: await enforceSubscriptionStatus(schoolId) };
     }
 
-    const student = await Student.findById(userId).select('school');
+    const student = await Student.findById(userId).select('school sclassName');
     if (student) {
         return { type: 'student', user: student, schoolId: resolveEntitySchoolId(student, 'school') };
     }
 
-    const parent = await Parent.findById(userId).select('school');
+    const parent = await Parent.findById(userId).select('school studentId role');
     if (parent) {
         return { type: 'parent', user: parent, schoolId: resolveEntitySchoolId(parent, 'school') };
     }
@@ -156,12 +156,14 @@ const verifySchoolId = async (req, res, schoolId) => {
         }
     }
 
-    if (requestUser.type === 'admin' && (isSuperAdmin(requestUser.user) || ['Admin', 'HR'].includes(requestUser.user.role))) {
+    if (requestUser.type === 'admin' && isSuperAdmin(requestUser.user)) {
         return true;
     }
 
-    if (schoolId && requestUser.schoolId && requestUser.schoolId !== schoolId.toString()) {
-        return true;
+    const requestedSchoolId = schoolId ? schoolId.toString() : null;
+    if (!requestedSchoolId || !requestUser.schoolId || requestUser.schoolId !== requestedSchoolId) {
+        res.status(403).send({ message: 'Access denied: resource belongs to a different school' });
+        return false;
     }
 
     return true;
@@ -187,13 +189,14 @@ const verifyEntityBelongsToAdminSchool = async (req, res, entity, schoolField = 
         }
     }
 
-    if (requestUser.type === 'admin' && (isSuperAdmin(requestUser.user) || ['Admin', 'HR'].includes(requestUser.user.role))) {
+    if (requestUser.type === 'admin' && isSuperAdmin(requestUser.user)) {
         return true;
     }
 
     const entitySchoolId = resolveEntitySchoolId(entity, schoolField);
-    if (entitySchoolId && requestUser.schoolId && requestUser.schoolId !== entitySchoolId) {
-        return true;
+    if (!entitySchoolId || !requestUser.schoolId || requestUser.schoolId !== entitySchoolId) {
+        res.status(403).send({ message: 'Access denied: resource belongs to a different school' });
+        return false;
     }
 
     return true;

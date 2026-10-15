@@ -46,6 +46,7 @@ const ParentProgress = () => {
   const [currentUser, setCurrentUser] = useState(null);
   const [student, setStudent] = useState(initialStudent || null);
   const [report, setReport] = useState(null);
+  const [learningProgress, setLearningProgress] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -67,7 +68,8 @@ const ParentProgress = () => {
 
     const studentId = selectedStudent.id || selectedStudent._id;
     axios.get(`${API_BASE_URL}/Parent/StudentProgress/${studentId}`, {
-      params: { parentEmail: parsedUser.email }
+      params: { parentEmail: parsedUser.email },
+      headers: parsedUser.token ? { Authorization: `Bearer ${parsedUser.token}` } : {},
     })
       .then((response) => {
         setReport(response.data);
@@ -78,6 +80,12 @@ const ParentProgress = () => {
       .finally(() => {
         setLoading(false);
       });
+
+    axios.get(`${API_BASE_URL}/Parent/LearningProgress/${studentId}`, {
+      headers: parsedUser.token ? { Authorization: `Bearer ${parsedUser.token}` } : {},
+    })
+      .then((response) => setLearningProgress(response.data))
+      .catch((err) => console.error('Failed to fetch student learning progress', err));
   }, [initialStudent, navigate]);
 
   const schoolBranding = useMemo(() => getSchoolBranding(currentUser, report?.school || currentUser?.school), [currentUser, report]);
@@ -239,6 +247,34 @@ const ParentProgress = () => {
             </Card>
           </Grid>
         </Grid>
+
+        <Paper sx={{ p: 3, mt: 3 }}>
+          <Typography variant="h6" sx={{ mb: 1 }}>Learning progress</Typography>
+          <Typography color="text.secondary" sx={{ mb: 2 }}>
+            Lessons completed: {learningProgress?.lessons?.completed || 0} / {learningProgress?.lessons?.total || 0}
+            {' '}({Number(learningProgress?.lessons?.completionRate || 0).toFixed(0)}%)
+          </Typography>
+          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Assignments</Typography>
+          {(learningProgress?.assignments || []).length ? (learningProgress.assignments.map((assignment) => (
+            <Typography key={assignment.id} variant="body2" sx={{ py: 0.5 }}>
+              {assignment.title} · {assignment.submitted ? 'Submitted' : 'Outstanding'}
+              {assignment.grade ? ` · Grade: ${assignment.grade}` : ''}
+              {assignment.feedback ? ` · Teacher feedback: ${assignment.feedback}` : ''}
+            </Typography>
+          ))) : <Typography variant="body2" color="text.secondary">No assignments recorded.</Typography>}
+          <Typography variant="subtitle1" sx={{ fontWeight: 700, mt: 2 }}>Quiz results</Typography>
+          {(learningProgress?.quizzes || []).length ? learningProgress.quizzes.map((quiz) => (
+            <Typography key={`${quiz.quizId}-${quiz.submittedAt}`} variant="body2" sx={{ py: 0.5 }}>
+              {quiz.title} · {quiz.score}/{quiz.maxScore}
+            </Typography>
+          )) : <Typography variant="body2" color="text.secondary">No quiz attempts recorded.</Typography>}
+          <Typography variant="subtitle1" sx={{ fontWeight: 700, mt: 2 }}>Outstanding tasks</Typography>
+          {(learningProgress?.outstandingTasks || []).length ? learningProgress.outstandingTasks.map((task) => (
+            <Typography key={task.id} variant="body2" sx={{ py: 0.5 }}>
+              {task.title} · Due {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : 'date not set'}
+            </Typography>
+          )) : <Typography variant="body2" color="text.secondary">No outstanding assignments.</Typography>}
+        </Paper>
       </Box>
     </Container>
   );

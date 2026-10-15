@@ -55,9 +55,9 @@ const Invoices = () => {
             {Array.isArray(stats?.studentDetails) && stats.studentDetails.map((s) => (
               <TableRow key={s.id}>
                 <TableCell>{s.name}</TableCell>
-                <TableCell>{s.totalFees}</TableCell>
-                <TableCell>{s.amountPaid}</TableCell>
-                <TableCell>{s.balance}</TableCell>
+                <TableCell>{s.expectedFees === null ? 'Not recorded' : s.expectedFees ?? s.totalFees ?? 0}</TableCell>
+                <TableCell>{s.paid ?? s.amountPaid ?? 0}</TableCell>
+                <TableCell>{s.balance === null ? 'Not recorded' : s.balance ?? 0}</TableCell>
               </TableRow>
             ))}
           </TableBody>

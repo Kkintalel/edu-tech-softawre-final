@@ -8,6 +8,11 @@ const Routes = require("./routes/route.js")
 const settingsRoute = require("./routes/settings-route.js")
 const employeeRoute = require("./routes/employee-route.js")
 const attendanceLeaveRoute = require("./routes/attendance-leave-route.js")
+const accountingRoute = require("./routes/accounting-route.js")
+const analyticsRoute = require('./routes/analytics-route.js')
+const globalSearchRoute = require('./routes/globalSearch-route.js')
+const financeCommitmentRoute = require('./routes/financeCommitment-route.js')
+const { runDueScheduledAnalyticsReports } = require('./controllers/analytics-controller.js')
 const { getClientIP } = require("./utils/auditLogger")
 const { apiLimiter } = require("./middleware/rateLimiter")
 const requestAudit = require('./middleware/requestAudit');
@@ -27,6 +32,8 @@ const ALLOWED_ORIGINS = [
     'http://127.0.0.1:3000',
     'http://localhost:3001',
     'http://127.0.0.1:3001',
+    'http://localhost:3002',
+    'http://127.0.0.1:3002',
 ].filter(Boolean);
 app.use(cors({
     origin: (origin, callback) => {
@@ -77,6 +84,7 @@ const { connectToMongo } = require('./utils/db');
 const path = require('path');
 const Admin = require('./models/adminSchema.js');
 const School = require('./models/schoolSchema.js');
+const Student = require('./models/studentSchema.js');
 const { createDatabaseBackup } = require('./utils/backupService.js');
 const { enforceSubscriptionStatus } = require('./middleware/schoolAccess.js');
 
@@ -109,6 +117,31 @@ const runAutomaticBackups = async () => {
     }
 };
 
+const repairStudentEmailIndex = async () => {
+    if (mongoose.connection.readyState !== 1) return;
+
+    try {
+        const studentCollection = mongoose.connection.db.collection('students');
+        const indexes = await studentCollection.indexes();
+        const emailIndex = indexes.find((index) => index.name === 'school_1_email_1');
+
+        if (emailIndex) {
+            await studentCollection.dropIndex('school_1_email_1');
+            console.log('Dropped stale school+email unique index for students to resolve null-email conflicts.');
+        }
+
+        await studentCollection.createIndex(
+            { school: 1, email: 1 },
+            { unique: true, sparse: true, partialFilterExpression: { email: { $type: 'string' } } }
+        );
+    } catch (error) {
+        if (error && error.code === 26) {
+            return;
+        }
+        console.error('Student email index repair failed:', error.message || error);
+    }
+};
+
 app.get('/', (req, res) => {
     res.send('School Management System backend is running.')
 })
@@ -125,12 +158,21 @@ app.get('/health', (req, res) => {
 // Mount existing routes
 // Serve uploaded files
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/api/analytics', analyticsRoute);
+app.use('/api/search', globalSearchRoute);
+app.use('/api/finance', financeCommitmentRoute);
 
 // Mount settings routes at root so frontend can call /School/... directly
 app.use('/', settingsRoute);
 app.use('/', employeeRoute);
 app.use('/', attendanceLeaveRoute);
+app.use('/', accountingRoute);
 app.use('/', Routes);
+
+const analyticsScheduleTimer = setInterval(() => {
+    runDueScheduledAnalyticsReports().catch((error) => console.error('Scheduled analytics runner failed:', error.message));
+}, 60 * 1000);
+analyticsScheduleTimer.unref();
 
 // Export app for testing. When run directly, start the server.
 if (require.main === module) {
@@ -140,8 +182,9 @@ if (require.main === module) {
     });
 
     connectToMongo(MONGO_URI)
-        .then(() => {
+        .then(async () => {
             console.log('MongoDB connection established.');
+            await repairStudentEmailIndex();
             enforceAllSubscriptionStatuses().catch((err) => {
                 console.error('Automatic subscription status check failed:', err.message || err);
             });

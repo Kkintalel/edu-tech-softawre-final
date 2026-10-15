@@ -66,9 +66,11 @@ const validateStudentInput = (data) => {
         if (!admissionValidation.valid) errors.push(admissionValidation.error);
     }
 
-    // Validate roll number
-    const rollValidation = validateRollNumber(data.rollNum);
-    if (!rollValidation.valid) errors.push(rollValidation.error);
+    // Validate roll number only when provided
+    if (data.rollNum !== undefined && data.rollNum !== null && data.rollNum !== '') {
+        const rollValidation = validateRollNumber(data.rollNum);
+        if (!rollValidation.valid) errors.push(rollValidation.error);
+    }
 
     // Validate class selection
     if (!data.sclassName) {
@@ -88,6 +90,10 @@ const validateStudentInput = (data) => {
     // Validate parent email if provided
     if (data.parentEmail && !validateEmail(data.parentEmail)) {
         errors.push('Invalid parent email format');
+    }
+
+    if (data.email && !validateEmail(data.email)) {
+        errors.push('Invalid student email format');
     }
 
     // Validate password if provided

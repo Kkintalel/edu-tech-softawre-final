@@ -1,5 +1,7 @@
 const Payroll = require('../models/payrollSchema');
 const Employee = require('../models/employeeSchema');
+const { Account, AccountingPeriod } = require('../models/accountingSchema');
+const AccountingService = require('../services/accountingService');
 const { logAuditAction } = require('../utils/auditLogger');
 
 const getSchoolId = (user) => user?.school || user?.schoolId || user?._id;
@@ -45,6 +47,26 @@ const approvePayroll = async (req, res) => {
         const payroll = await Payroll.findById(req.params.id);
         if (!payroll || String(payroll.school) !== String(getSchoolId(req.user))) return res.status(404).json({ message: 'Payroll not found' });
         if (payroll.status !== 'Pending Approval') return res.status(400).json({ message: 'Only pending payroll can be approved.' });
+
+        const openPeriod = await AccountingPeriod.findOne({ schoolId: payroll.school, status: 'open' }).sort({ startDate: -1 });
+        const payrollAccount = await Account.findOne({ schoolId: payroll.school, code: '5000' });
+
+        if (payrollAccount && openPeriod) {
+            const projection = await AccountingService.getProjectedBudgetStatus({
+                schoolId: payroll.school,
+                periodId: openPeriod._id,
+                accountId: payrollAccount._id,
+                amount: payroll.totalNet || 0,
+            });
+
+            if (projection.status === 'over_budget') {
+                return res.status(400).json({
+                    message: 'Payroll approval blocked: projected salaries exceed the approved budget.',
+                    budgetCheck: projection,
+                });
+            }
+        }
+
         payroll.status = 'Approved'; payroll.approvedBy = req.userId; payroll.approvedAt = new Date(); await payroll.save();
         await logAuditAction({ school: payroll.school, user: req.userId, userName: req.user.name || req.user.email, userRole: req.user.role, action: 'APPROVE', entityType: 'report', entityId: payroll._id, entityName: `Payroll ${payroll.period}`, resultMessage: 'Payroll approved for payment', req });
         return res.json({ message: 'Payroll approved for payment', payroll });

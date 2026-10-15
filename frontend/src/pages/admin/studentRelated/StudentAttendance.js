@@ -13,11 +13,15 @@ import {
 } from '@mui/material';
 import { PurpleButton } from '../../../components/buttonStyles';
 import Popup from '../../../components/Popup';
+import { useTeacherClass } from '../../teacher/TeacherClassContext';
+import { useAssignedTeaching } from '../../teacher/useAssignedTeaching';
 
 const StudentAttendance = ({ situation }) => {
     const dispatch = useDispatch();
     const { currentUser, userDetails, loading, error: userError } = useSelector((state) => state.user);
     const { subjectsList } = useSelector((state) => state.sclass);
+    const { selectedClassId } = useTeacherClass();
+    const teacherTeaching = useAssignedTeaching(currentUser, selectedClassId);
     const { response, error, statestatus, loading: studentLoading } = useSelector((state) => state.student);
     const params = useParams()
 
@@ -35,7 +39,7 @@ const StudentAttendance = ({ situation }) => {
     const [loadFailed, setLoadFailed] = useState(false)
 
     const requestedStudentId = situation === "Student" ? params.id : params.studentID;
-    const classId = userDetails?.sclassName?._id || userDetails?.sclassName || currentUser?.teachSclass?._id || currentUser?.teachSclass;
+    const classId = selectedClassId || userDetails?.sclassName?._id || userDetails?.sclassName || currentUser?.teachSclass?._id || currentUser?.teachSclass;
     const studentName = userDetails?.name || currentUser?.name || "Student";
     const isCurrentStudentLoaded = userDetails?._id === requestedStudentId;
     const showLoadingState = loading && !isCurrentStudentLoaded && !currentUser?.name;
@@ -74,16 +78,16 @@ const StudentAttendance = ({ situation }) => {
                 if (selectedSubject) {
                     setSubjectName(selectedSubject.subName || "");
                 }
-            } else if (!subjectName && currentUser?.teachSubject) {
-                const teachSubId = currentUser.teachSubject?._id || currentUser.teachSubject;
-                const selectedSubject = subjectsList.find((subject) => subject._id === teachSubId);
+            } else if (!subjectName && (currentUser?.teachSubject || teacherTeaching.subjects?.length)) {
+                const preferredId = currentUser.teachSubject?._id || currentUser.teachSubject || teacherTeaching.subjects[0]?._id || teacherTeaching.subjects[0]?.id;
+                const selectedSubject = subjectsList.find((subject) => String(subject._id) === String(preferredId));
                 if (selectedSubject) {
                     setChosenSubName(selectedSubject._id || "");
                     setSubjectName(selectedSubject.subName || "");
                 }
             }
         }
-    }, [subjectsList, chosenSubName, subjectName, currentUser]);
+    }, [subjectsList, chosenSubName, subjectName, currentUser, teacherTeaching.subjects]);
 
 
     const changeHandler = (event) => {

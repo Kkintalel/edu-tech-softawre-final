@@ -26,6 +26,7 @@ const AccountantStudents = () => {
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [paymentSuccess, setPaymentSuccess] = useState('');
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [searchType, setSearchType] = useState('student');
   const [searchQuery, setSearchQuery] = useState('');
@@ -149,6 +150,7 @@ const AccountantStudents = () => {
     setChequeNumber('');
     setPaymentNote('');
     setPaymentError('');
+    setPaymentSuccess('');
     setPayOpen(true);
   };
 
@@ -199,7 +201,7 @@ const AccountantStudents = () => {
     setPaymentError('');
 
     try {
-      await axios.put(
+      const response = await axios.put(
         `${API_BASE_URL}/StudentPayment/${selectedStudent._id || selectedStudent.id}`,
         {
           amount,
@@ -212,8 +214,14 @@ const AccountantStudents = () => {
         },
         { headers }
       );
+      const receiptNumber = response.data?.receiptNumber;
+      const balance = response.data?.balance;
+      setPaymentSuccess(`Payment recorded${receiptNumber ? ` · Receipt ${receiptNumber}` : ''}${balance !== undefined ? ` · New balance KES ${Number(balance).toLocaleString()}` : ''}.`);
       closePayDialog();
       await fetchStudents();
+      if (searchType === 'student' && searchQuery.trim()) {
+        await handleSearch();
+      }
     } catch (err) {
       setPaymentError(err.response?.data?.message || err.message || 'Payment submission failed');
     } finally {
@@ -295,6 +303,7 @@ const AccountantStudents = () => {
         Student Fee Management
       </Typography>
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {paymentSuccess && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setPaymentSuccess('')}>{paymentSuccess}</Alert>}
 
       <Paper sx={{ p: 2, mb: 2 }}>
         <Typography sx={{ mb: 1 }}>Student fee overview</Typography>
@@ -309,7 +318,15 @@ const AccountantStudents = () => {
             <MenuItem value="assignment">Assignment</MenuItem>
             <MenuItem value="cheque">Cheque number</MenuItem>
           </Select>
-          <TextField size="small" placeholder={searchType === 'cheque' ? 'Search by cheque number' : 'Search by email, admission number, or title'} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+          <TextField
+            size="small"
+            placeholder={searchType === 'student' ? 'Search by name, admission number, or roll number' : searchType === 'cheque' ? 'Search by cheque number' : 'Search by email or title'}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') handleSearch();
+            }}
+          />
           <Button variant="contained" onClick={handleSearch}>Search</Button>
         </Stack>
       </Paper>
@@ -333,7 +350,17 @@ const AccountantStudents = () => {
             <Box sx={{ mt: 1 }}>
               {searchResults.type === 'student' && searchResults.data.map(s => (
                 <Paper key={s._id} sx={{ p: 1, mb: 1 }}>
-                  <Typography>{s.name} — {s.admissionNo} — {s.parentEmail || s.email}</Typography>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} spacing={1}>
+                    <Box>
+                      <Typography>{s.name} — {s.admissionNo}</Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Class: {s.sclassName?.sclassName || 'N/A'} · Balance: KES {Number(s.balance || 0).toLocaleString()}
+                      </Typography>
+                    </Box>
+                    <Button variant="contained" size="small" onClick={() => openPayDialog(s)}>
+                      Pay Fee
+                    </Button>
+                  </Stack>
                   {(s.paymentHistory || []).filter((payment) => payment.status === 'Pending').map((payment) => {
                     const paymentIndex = s.paymentHistory.indexOf(payment);
                     const verificationKey = `${s._id}-${paymentIndex}`;

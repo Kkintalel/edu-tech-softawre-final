@@ -22,9 +22,10 @@ import {
   ReceiptLong,
 } from '@mui/icons-material';
 import { Link, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
-import { useDispatch } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import { authLogout } from '../../redux/userRelated/userSlice';
 import DataExportButton from '../../components/DataExportButton';
+import GlobalSearch from '../../components/GlobalSearch';
 import EmployeeDashboard from './EmployeeDashboard';
 import EmployeeProfilesPage from './EmployeeProfilesPage';
 import EmployeePayrollInfo from './EmployeePayrollInfo';
@@ -88,6 +89,7 @@ const ModuleDetail = ({ title, description, bullets }) => (
 const HRDashboard = () => {
   const dispatch = useDispatch();
   const navigate = useNavigate();
+  const { currentUser, currentRole } = useSelector((state) => state.user);
 
   const handleLogout = () => {
     dispatch(authLogout());
@@ -96,7 +98,10 @@ const HRDashboard = () => {
 
   return (
     <Box sx={{ p: { xs: 2, md: 3 } }}>
-      <Typography variant="h4" sx={{ mb: 1 }}>HR Portal</Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+        <Typography variant="h4">HR Portal</Typography>
+        <GlobalSearch currentUser={currentUser} currentRole={currentRole} />
+      </Box>
       <Typography color="text.secondary" sx={{ mb: 3 }}>
         Manage people operations, employee information, leave, attendance, payroll, recruitment, and compliance from one workspace.
       </Typography>

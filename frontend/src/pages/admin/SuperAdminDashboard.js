@@ -83,12 +83,21 @@ const SuperAdminDashboard = () => {
     const fetchPendingSchools = async () => {
         try {
             const adminId = getAdminId();
-            const headers = adminId ? { 'x-admin-id': adminId } : {};
+            if (!adminId) {
+                setPendingSchools([]);
+                setError('SuperAdmin session not found. Please log in again.');
+                return;
+            }
+
+            const headers = { 'x-admin-id': adminId };
             const response = await axios.get(`${API_BASE_URL}/Admin/PendingSchools`, { headers });
             setPendingSchools(response.data || []);
+            if (response.data?.message) {
+                setError(response.data.message);
+            }
         } catch (err) {
             console.error('Failed to fetch pending schools', err);
-            setError('Failed to load pending schools');
+            setError(err.response?.data?.message || 'Failed to load pending schools');
         }
     };
 
@@ -142,6 +151,25 @@ const SuperAdminDashboard = () => {
         setStatusAction(null);
         setStatusSchoolId(null);
         setStatusReason('');
+    };
+
+    const handleApproveSchool = async (school) => {
+        setLoading(true);
+        setError('');
+        setSuccess('');
+        try {
+            const approverId = getAdminId();
+            await axios.put(`${API_BASE_URL}/Admin/Approve/${school._id}`, {
+                approverRole: currentRole,
+                approverId,
+            });
+            setSuccess(`${school.schoolName} approved. Its administrator can now sign in.`);
+            await Promise.all([fetchRegisteredSchools(), fetchPendingSchools(), fetchStats()]);
+        } catch (err) {
+            setError(err.response?.data?.message || `Failed to approve ${school.schoolName}`);
+        } finally {
+            setLoading(false);
+        }
     };
 
     const handleDeleteSchool = async (school) => {
@@ -279,6 +307,7 @@ const SuperAdminDashboard = () => {
                                                 </TableCell>
                                                 <TableCell>{school.approvedAt ? new Date(school.approvedAt).toLocaleDateString() : '—'}</TableCell>
                                                 <TableCell>{school.settings?.schoolProfile?.address || '—'}</TableCell>
+                                                <TableCell>{school.settings?.schoolProfile?.website || '—'}</TableCell>
                                                 <TableCell sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                                                     {(() => {
                                                         const normalizedStatus = String(school.status || '').trim().toLowerCase();
@@ -359,6 +388,7 @@ const SuperAdminDashboard = () => {
                                             <TableCell><strong>Contact Name</strong></TableCell>
                                             <TableCell><strong>Email</strong></TableCell>
                                             <TableCell><strong>Registration Date</strong></TableCell>
+                                            <TableCell><strong>Actions</strong></TableCell>
                                         </TableRow>
                                     </TableHead>
                                     <TableBody>
@@ -369,6 +399,25 @@ const SuperAdminDashboard = () => {
                                                 <TableCell>{school.email}</TableCell>
                                                 <TableCell>
                                                     {school.createdAt ? new Date(school.createdAt).toLocaleDateString() : '—'}
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Button
+                                                        size="small"
+                                                        variant="contained"
+                                                        color="success"
+                                                        onClick={() => handleApproveSchool(school)}
+                                                        sx={{ mr: 1 }}
+                                                    >
+                                                        Approve
+                                                    </Button>
+                                                    <Button
+                                                        size="small"
+                                                        variant="outlined"
+                                                        color="error"
+                                                        onClick={() => handleDeleteSchool(school)}
+                                                    >
+                                                        Delete Permanently
+                                                    </Button>
                                                 </TableCell>
                                             </TableRow>
                                         ))}

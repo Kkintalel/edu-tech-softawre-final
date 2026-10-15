@@ -14,6 +14,7 @@ const { sendAdminApprovalEmail, sendAdminRejectionEmail, sendResetPasswordLink }
 const { validateAdminInput, validateAdminUpdateInput, validatePassword } = require('../utils/validation.js');
 const { generateAndSendEmailOtp, generateAndSendSmsOtp, verifyEmailOtp, verifySmsOtp, verifyTotpToken } = require('../utils/twoFactorAuth.js');
 const { issueAdminToken } = require('../utils/authToken.js');
+const { getFrontendBaseUrl } = require('../utils/frontendUrl.js');
 
 const getFallbackAdmin = (identifier) => {
     try {
@@ -932,6 +933,10 @@ const adminLogIn = async (req, res) => {
 
         admin.password = undefined;
         const safeAdmin = admin.toObject ? admin.toObject() : { ...admin };
+        const adminSchoolId = safeAdmin.school?._id || safeAdmin.school || safeAdmin._id;
+        const linkedSchool = await School.findOne({ $or: [{ _id: adminSchoolId }, { schoolAdmin: adminSchoolId }] }).select('_id');
+        const BrandingSettings = require('../models/settingsSchema.js');
+        safeAdmin.schoolSettings = await BrandingSettings.findOne({ school: linkedSchool?._id || adminSchoolId }).select('branding schoolProfile receiptSettings');
         return res.send({ ...safeAdmin, admin: safeAdmin, token: issueAdminToken(safeAdmin) });
     } catch (err) {
         console.error('Admin login failed:', err.message || err);
@@ -1192,7 +1197,7 @@ const getPendingSchools = async (req, res) => {
             return res.send(schools);
         }
 
-        const schools = await Admin.find({ approved: false }).select('schoolName email name createdAt -password');
+        const schools = await Admin.find({ approved: false }).select('schoolName email name createdAt');
         res.send(schools);
     } catch (err) {
         res.status(500).json(err);
@@ -1432,7 +1437,7 @@ const requestAdminPasswordReset = async (req, res) => {
 
         // Use the user's actual role so accountants/HR receive links to their correct reset pages
         const rolePath = admin.role || 'Admin';
-        const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/${rolePath}/reset-password/${token}`;
+        const resetUrl = `${getFrontendBaseUrl(req)}/${rolePath}/reset-password/${token}`;
         const emailResult = await sendResetPasswordLink(admin.email, admin.name, resetUrl);
 
         res.send({ message: 'Password reset link sent to your email', emailResult });

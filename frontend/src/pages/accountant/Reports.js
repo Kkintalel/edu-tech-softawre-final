@@ -38,7 +38,12 @@ const Reports = () => {
     if (!stats) return;
     const rows = [];
     rows.push(['Student', 'TotalFees', 'AmountPaid', 'Balance']);
-    (stats.studentDetails || []).forEach(s => rows.push([s.name, s.totalFees, s.amountPaid, s.balance]));
+    (stats.studentDetails || []).forEach(s => rows.push([
+      s.name,
+      s.expectedFees ?? s.totalFees ?? 'Not recorded',
+      s.paid ?? s.amountPaid ?? 0,
+      s.balance ?? 'Not recorded',
+    ]));
     const csv = rows.map(r => r.map(c => `"${(c ?? '').toString().replace(/"/g, '""')}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);

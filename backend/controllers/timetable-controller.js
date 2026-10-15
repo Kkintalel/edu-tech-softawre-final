@@ -486,4 +486,147 @@ const getTimetableForClass = async (req, res) => {
     }
 };
 
-module.exports = { generateTimetableForClass, updateTimetableForClass, getTimetableForClass };
+const getTimetableForTeacher = async (req, res) => {
+    try {
+        const teacherId = req.params.id;
+        const teacher = await Teacher.findById(teacherId)
+            .populate('teachSclass', 'sclassName')
+            .populate('teachSclasses', 'sclassName');
+
+        if (!teacher) {
+            return res.status(404).send({ message: 'Teacher not found' });
+        }
+
+        const subjectClassIds = await Subject.find({ _id: { $in: teacher.teachSubjects || [] } }).select('sclassName').lean();
+        const classIds = Array.from(new Set([
+            teacher.teachSclass?._id?.toString?.() || teacher.teachSclass,
+            ...(teacher.teachSclasses || []).map((item) => item?._id ? item._id.toString() : item.toString()),
+            ...subjectClassIds.map((subject) => subject.sclassName?.toString?.() || String(subject.sclassName)).filter(Boolean),
+        ].filter(Boolean)));
+
+        const timetables = await Timetable.find({ school: teacher.school, sclass: { $in: classIds } })
+            .populate('sclass', 'sclassName')
+            .lean();
+
+        const schedule = [];
+        timetables.forEach((timetable) => {
+            (timetable.schedule || []).forEach((entry) => {
+                if (entry.teacher && entry.teacher.toString() === teacherId.toString()) {
+                    schedule.push({
+                        ...entry,
+                        classId: timetable.sclass?._id || null,
+                        className: timetable.sclass?.sclassName || 'Class',
+                        timetableId: timetable._id,
+                    });
+                }
+            });
+        });
+
+        return res.send({
+            teacher: {
+                _id: teacher._id,
+                name: teacher.name,
+                email: teacher.email,
+                school: teacher.school,
+            },
+            classes: classIds,
+            schedule: schedule
+                .slice()
+                .sort((a, b) => DAY_INDEX[a.day] - DAY_INDEX[b.day] || a.period - b.period),
+        });
+    } catch (err) {
+        return res.status(500).json({ message: 'Failed to load teacher timetable', error: err.message });
+    }
+};
+
+const getSchoolTimetable = async (req, res) => {
+    try {
+        const schoolId = req.params.id;
+        const timetables = await Timetable.find({ school: schoolId })
+            .populate('sclass', 'sclassName')
+            .populate('school', 'schoolName')
+            .lean();
+
+        const schedule = [];
+        const conflicts = [];
+        const slotMap = new Map();
+
+        timetables.forEach((timetable) => {
+            (timetable.schedule || []).forEach((entry) => {
+                if (entry.slotType !== 'lesson') return;
+
+                const slotKey = `${entry.day}-${entry.period}`;
+                const teacherKey = `${entry.day}-${entry.period}-${entry.teacher?.toString?.() || 'unassigned'}`;
+                const classKey = `${entry.day}-${entry.period}-${timetable.sclass?._id?.toString?.() || 'unknown'}`;
+
+                schedule.push({
+                    ...entry,
+                    classId: timetable.sclass?._id || null,
+                    className: timetable.sclass?.sclassName || 'Class',
+                    timetableId: timetable._id,
+                });
+
+                const slotEntry = slotMap.get(slotKey) || { teachers: new Set(), classes: new Set(), entries: [] };
+                slotEntry.entries.push({
+                    ...entry,
+                    classId: timetable.sclass?._id || null,
+                    className: timetable.sclass?.sclassName || 'Class',
+                });
+                if (entry.teacher) slotEntry.teachers.add(entry.teacher.toString());
+                if (timetable.sclass?._id) slotEntry.classes.add(timetable.sclass._id.toString());
+                slotMap.set(slotKey, slotEntry);
+
+                if (entry.teacher && slotMap.get(teacherKey)) {
+                    conflicts.push({
+                        type: 'teacher-clash',
+                        day: entry.day,
+                        period: entry.period,
+                        teacherId: entry.teacher,
+                        teacherName: entry.teacherName,
+                    });
+                }
+
+                if (slotMap.get(classKey)) {
+                    conflicts.push({
+                        type: 'class-clash',
+                        day: entry.day,
+                        period: entry.period,
+                        classId: timetable.sclass?._id,
+                        className: timetable.sclass?.sclassName,
+                    });
+                }
+            });
+        });
+
+        for (const [, value] of slotMap.entries()) {
+            if (value.teachers.size > 1 || value.classes.size > 1) {
+                conflicts.push({
+                    type: value.teachers.size > 1 ? 'teacher-clash' : 'class-clash',
+                    day: value.entries[0]?.day,
+                    period: value.entries[0]?.period,
+                    entries: value.entries,
+                });
+            }
+        }
+
+        return res.send({
+            schoolId,
+            schedule: schedule
+                .slice()
+                .sort((a, b) => DAY_INDEX[a.day] - DAY_INDEX[b.day] || a.period - b.period),
+            conflicts: conflicts.filter((item, index, arr) => arr.findIndex((candidate) => JSON.stringify(candidate) === JSON.stringify(item)) === index),
+        });
+    } catch (err) {
+        return res.status(500).json({ message: 'Failed to load school timetable', error: err.message });
+    }
+};
+
+const DAY_INDEX = {
+    Monday: 1,
+    Tuesday: 2,
+    Wednesday: 3,
+    Thursday: 4,
+    Friday: 5,
+};
+
+module.exports = { generateTimetableForClass, updateTimetableForClass, getTimetableForClass, getTimetableForTeacher, getSchoolTimetable };

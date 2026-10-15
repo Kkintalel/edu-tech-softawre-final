@@ -2,15 +2,21 @@ import React from 'react'
 import styled from 'styled-components';
 import { Card, CardContent, Typography } from '@mui/material';
 import { useSelector } from 'react-redux';
+import { useTeacherClass } from './TeacherClassContext';
 
 const TeacherProfile = () => {
   const { currentUser, response, error } = useSelector((state) => state.user);
+  const { selectedClass } = useTeacherClass();
 
   if (response) { console.log(response) }
   else if (error) { console.log(error) }
 
-  const teachSclass = currentUser.teachSclass
-  const teachSubject = currentUser.teachSubject
+  const assignedClassNames = [currentUser?.teachSclass, ...(currentUser?.teachSclasses || [])]
+    .map((item) => item?.sclassName || item?.name || '')
+    .filter(Boolean);
+  const assignedSubjectNames = [currentUser?.teachSubject, ...(currentUser?.teachSubjects || [])]
+    .map((item) => item?.subName || '')
+    .filter(Boolean);
   const teachSchool = currentUser.school
 
   return (
@@ -19,9 +25,10 @@ const TeacherProfile = () => {
         <ProfileCardContent>
           <ProfileText>Name: {currentUser.name}</ProfileText>
           <ProfileText>Email: {currentUser.email}</ProfileText>
-          <ProfileText>Class: {teachSclass.sclassName}</ProfileText>
-          <ProfileText>Subject: {teachSubject.subName}</ProfileText>
-          <ProfileText>School: {teachSchool.schoolName}</ProfileText>
+          <ProfileText>Classes: {assignedClassNames.join(', ') || 'Not assigned'}</ProfileText>
+          <ProfileText>Selected class: {selectedClass?.name || currentUser.teachSclass?.sclassName || 'Not selected'}</ProfileText>
+          <ProfileText>Subjects: {assignedSubjectNames.join(', ') || 'Not assigned'}</ProfileText>
+          <ProfileText>School: {teachSchool?.schoolName || 'N/A'}</ProfileText>
         </ProfileCardContent>
       </ProfileCard>
     </>

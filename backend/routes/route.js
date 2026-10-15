@@ -3,7 +3,9 @@ const { sendResetPasswordLink } = require('../services/emailService.js');
 const { verifyAdmin } = require('../middleware/superadminAuth.js');
 
 // Import rate limiters for sensitive endpoints
-const { loginLimiter, passwordResetLimiter, studentRegistrationLimiter, adminTeacherRegistrationLimiter, fileUploadLimiter } = require('../middleware/rateLimiter');
+const { loginLimiter, passwordResetLimiter, studentRegistrationLimiter, adminTeacherRegistrationLimiter, fileUploadLimiter, demoRequestLimiter } = require('../middleware/rateLimiter');
+const { verifySuperAdmin } = require('../middleware/superadminAuth.js');
+const { createDemoRequest, listDemoRequests } = require('../controllers/demoRequest-controller.js');
 
 // Import SuperAdmin routes
 const superAdminRoutes = require('./superadmin-route.js');
@@ -15,7 +17,7 @@ const { adminRegister, adminLogIn, updateAdmin, addAccountant, addHR, getAccount
 const { parentLogIn, getStudentFeeInfo, parentPayFee, getParentStudents, getParentStudentProgress, initiateStk, mockInitiateStk, checkStkStatus, mpesaCallback } = require('../controllers/parent-controller.js');
 
 const { sclassCreate, sclassList, deleteSclass, deleteSclasses, getSclassDetail, getSclassStudents, promoteSclassStudents } = require('../controllers/class-controller.js');
-const { generateTimetableForClass, updateTimetableForClass, getTimetableForClass } = require('../controllers/timetable-controller.js');
+const { generateTimetableForClass, updateTimetableForClass, getTimetableForClass, getTimetableForTeacher, getSchoolTimetable } = require('../controllers/timetable-controller.js');
 const { complainCreate, complainList } = require('../controllers/complain-controller.js');
 const { noticeCreate, noticeList, deleteNotices, deleteNotice, updateNotice } = require('../controllers/notice-controller.js');
 const {
@@ -51,16 +53,20 @@ const {
     searchChequePayment,
     importStudents } = require('../controllers/student_controller.js');
 const { verifyEntityBelongsToAdminSchool } = require('../middleware/schoolAccess.js');
+const { verifyFinanceReader, verifyFinanceWriter } = require('../middleware/superadminAuth.js');
 const upload = require('../middleware/upload.js');
 const csvUpload = require('../middleware/csvUpload.js');
 const learningUpload = require('../middleware/learningUpload.js');
 const { subjectCreate, classSubjects, deleteSubjectsByClass, getSubjectDetail, deleteSubject, freeSubjectList, allSubjects, deleteSubjects } = require('../controllers/subject-controller.js');
 const { teacherRegister, teacherLogIn, getTeachers, getTeacherDetail, deleteTeachers, deleteTeachersByClass, deleteTeacher, updateTeacher, updateTeacherSubject, updateTeacherRole, teacherAttendance, requestTeacherPasswordReset, resetTeacherPassword, resetTeacherPasswordByAdmin, payTeacherSalary, approveSalaryPayment, rejectSalaryPayment, searchTeacher } = require('../controllers/teacher-controller.js');
 const { payrollExport } = require('../controllers/teacher-controller.js');
-const { createAssignment, getAssignmentsBySchool, getAssignmentsByClass, getAssignmentDetail, submitAssignment, getAssignmentSubmissions, searchAssignments } = require('../controllers/assignment-controller.js');
-const { sendMessage, getInbox, getUnreadCount, markAsRead, addResponse, resolveCommunication, broadcastNotification, getCommunicationStats } = require('../controllers/hrAccountantCommunication-controller.js');const { submitExpenseClaim, getExpenseClaims, updateExpenseClaimStatus } = require('../controllers/expense-controller.js');const { createLearningMaterial, getLearningMaterialsByClass, getLearningMaterialsBySchool, createLiveClass, getLiveClassesByClass, joinLiveClass, createQuiz, getQuizzesByClass } = require('../controllers/learning-controller.js');
+const { createAssignment, getAssignmentsBySchool, getAssignmentsByClass, getAssignmentDetail, submitAssignment, getAssignmentSubmissions, gradeAssignmentSubmission, searchAssignments } = require('../controllers/assignment-controller.js');
+const { sendMessage, getInbox, getUnreadCount, markAsRead, addResponse, resolveCommunication, broadcastNotification, getCommunicationStats } = require('../controllers/hrAccountantCommunication-controller.js');const { submitExpenseClaim, getExpenseClaims, updateExpenseClaimStatus } = require('../controllers/expense-controller.js');const { createLearningMaterial, getLearningMaterialsByClass, getLearningMaterialsBySchool, createLiveClass, getLiveClassesByClass, joinLiveClass, createQuiz, getQuizzesByClass, completeLearningMaterial, submitQuizAttempt, getQuizResults, getStudentLearningProgress } = require('../controllers/learning-controller.js');
 const { saveLegalAcceptance } = require('../controllers/legalAcceptance-controller.js');
 const { exportSchoolData, exportTeacherStudents, exportHrData, exportAccountantData } = require('../controllers/dataExport-controller.js');
+
+router.post('/DemoRequest', demoRequestLimiter, createDemoRequest);
+router.get('/SuperAdmin/DemoRequests', verifySuperAdmin, listDemoRequests);
 
 // Admin
 router.post('/AdminReg', studentRegistrationLimiter, adminRegister);
@@ -126,7 +132,7 @@ router.post('/Student/RequestPasswordReset', passwordResetLimiter, requestStuden
 router.post('/Students/Import/:id', fileUploadLimiter, csvUpload.single('studentsFile'), importStudents)
 router.put('/Student/ResetPassword/:token', passwordResetLimiter, resetStudentPassword)
 router.post('/Student/ChangePassword', changeStudentPassword)
-router.post('/Student/:studentId/ResetByAdmin', passwordResetLimiter, resetStudentPasswordByAdmin)
+router.post('/Student/:studentId/ResetByAdmin', passwordResetLimiter, verifyAdmin, resetStudentPasswordByAdmin)
 
 router.get("/Students/:id", getStudents)
 router.get("/Student/:id", getStudentDetail)
@@ -142,14 +148,15 @@ router.put("/Student/:id", updateStudent)
 router.put('/UpdateExamResult/:id', updateExamResult)
 router.post('/Student/:id/ReportCardStatus', verifyAdmin, updateReportCardStatus)
 
-router.put('/StudentPayment/:id', studentFeePayment)
-router.post('/Student/VerifyPayment', verifyAdmin, verifyPayment)
+router.put('/StudentPayment/:id', verifyAdmin, verifyFinanceWriter, studentFeePayment)
+router.post('/Student/VerifyPayment', verifyAdmin, verifyFinanceWriter, verifyPayment)
 router.post('/Student/PaymentWebhook', paymentWebhook)
-router.get('/Student/PaymentReconciliation/:schoolId', getPaymentReconciliation)
-router.post('/Student/PaymentReconciliation/:schoolId', applyPaymentReconciliation)
-router.put('/Student/SendFeeReminder/:studentId', sendPaymentReminder)
+router.get('/Student/PaymentReconciliation/:schoolId', verifyAdmin, verifyFinanceReader, getPaymentReconciliation)
+router.post('/Student/PaymentReconciliation/:schoolId', verifyAdmin, verifyFinanceWriter, applyPaymentReconciliation)
+router.put('/Student/SendFeeReminder/:studentId', verifyAdmin, verifyFinanceWriter, sendPaymentReminder)
 router.get('/Student/AcademicReport/:schoolId', getAcademicReport)
-router.get('/Student/PaymentStats/:schoolId', getPaymentStats)
+router.get('/Student/PaymentStats/:schoolId', verifyAdmin, verifyFinanceReader, getPaymentStats)
+router.post('/Student/SendFeeReminder/:studentId', verifyAdmin, verifyFinanceWriter, sendPaymentReminder)
 
 // Manual notification endpoint for admin to notify a student's parent/guardian
 router.post('/Student/NotifyParent/:id', async (req, res) => {
@@ -194,18 +201,18 @@ router.get('/Student/SearchCheque/:schoolId', searchChequePayment);
 router.post('/TeacherReg', adminTeacherRegistrationLimiter, teacherRegister);
 router.post('/TeacherLogin', loginLimiter, teacherLogIn)
 router.post('/Teacher/RequestPasswordReset', passwordResetLimiter, requestTeacherPasswordReset)
-router.put('/Teacher/ResetPassword/:token', passwordResetLimiter, resetTeacherPassword)
+router.post('/Teacher/ResetPassword/:token', passwordResetLimiter, resetTeacherPassword)
 
 // Admin-driven teacher password reset
-router.post('/Teacher/:teacherId/ResetByAdmin', passwordResetLimiter, resetTeacherPasswordByAdmin)
+router.post('/Teacher/:teacherId/ResetByAdmin', passwordResetLimiter, verifyAdmin, resetTeacherPasswordByAdmin)
 
 router.get("/Teachers/:id", getTeachers)
 router.get("/Teacher/:id", getTeacherDetail)
 router.get('/Teacher/Search/:schoolId', searchTeacher)
 router.put("/Teacher/:id", updateTeacher)
-router.put('/Teacher/SalaryPayment/:id', payTeacherSalary)
-router.put('/Teacher/:teacherId/SalaryPayment/:paymentIndex/Approve', approveSalaryPayment)
-router.put('/Teacher/:teacherId/SalaryPayment/:paymentIndex/Reject', rejectSalaryPayment)
+router.put('/Teacher/SalaryPayment/:id', verifyAdmin, verifyFinanceWriter, payTeacherSalary)
+router.put('/Teacher/:teacherId/SalaryPayment/:paymentIndex/Approve', verifyAdmin, verifyFinanceWriter, approveSalaryPayment)
+router.put('/Teacher/:teacherId/SalaryPayment/:paymentIndex/Reject', verifyAdmin, verifyFinanceWriter, rejectSalaryPayment)
 router.get('/Teacher/PayrollExport/:schoolId', payrollExport);
 
 router.delete("/Teachers/:id", deleteTeachers)
@@ -267,6 +274,8 @@ router.delete("/SubjectsClass/:id", deleteSubjectsByClass)
 router.post('/Timetable/Generate/:id', generateTimetableForClass);
 router.put('/Timetable/Update/:id', updateTimetableForClass);
 router.get('/Timetable/Class/:id', getTimetableForClass);
+router.get('/Timetable/Teacher/:id', getTimetableForTeacher);
+router.get('/Timetable/School/:id', getSchoolTimetable);
 
 // Assignment
 
@@ -274,18 +283,24 @@ router.get('/Timetable/Class/:id', getTimetableForClass);
 router.post('/Assignment', fileUploadLimiter, upload.array('attachments', 5), createAssignment);
 router.post('/LearningMaterial', fileUploadLimiter, learningUpload.array('file', 1), createLearningMaterial);
 router.get('/LearningMaterials/:classId', getLearningMaterialsByClass);
+router.post('/LearningMaterials/:materialId/Complete', completeLearningMaterial);
 router.get('/LearningMaterials/School/:schoolId', getLearningMaterialsBySchool);
 router.post('/LiveClass', createLiveClass);
 router.get('/LiveClasses/:classId', getLiveClassesByClass);
 router.post('/LiveClasses/:liveClassId/Join', joinLiveClass);
 router.post('/Quiz', createQuiz);
 router.get('/Quizzes/:classId', getQuizzesByClass);
+router.post('/Quiz/:quizId/Attempts', submitQuizAttempt);
+router.get('/Quiz/:quizId/Results', getQuizResults);
+router.get('/LearningProgress/:studentId', getStudentLearningProgress);
+router.get('/Parent/LearningProgress/:studentId', getStudentLearningProgress);
 router.get('/Assignments/School/:schoolId', getAssignmentsBySchool);
 router.get('/Assignments/Class/:classId', getAssignmentsByClass);
 router.get('/Assignments/Search/:schoolId', searchAssignments);
 router.get('/Assignment/:id', getAssignmentDetail);
 router.post('/Assignment/:id/Submit', submitAssignment);
 router.get('/Assignment/:id/Submissions', getAssignmentSubmissions);
+router.put('/Assignment/:id/Submission/:studentId', gradeAssignmentSubmission);
 
 // Parent
 router.post('/ParentLogin', parentLogIn);
@@ -311,9 +326,9 @@ router.put('/Communication/:messageId/Resolve', resolveCommunication);
 router.post('/Communication/Broadcast', broadcastNotification);
 router.get('/Communication/Stats', getCommunicationStats);
 
-router.post('/ExpenseClaim', submitExpenseClaim);
-router.get('/ExpenseClaims', getExpenseClaims);
-router.put('/ExpenseClaim/:id/Status', updateExpenseClaimStatus);
+router.post('/ExpenseClaim', verifyAdmin, verifyFinanceWriter, submitExpenseClaim);
+router.get('/ExpenseClaims', verifyAdmin, getExpenseClaims);
+router.put('/ExpenseClaim/:id/Status', verifyAdmin, verifyFinanceWriter, updateExpenseClaimStatus);
 
 // Include SuperAdmin routes
 router.use('/', superAdminRoutes);

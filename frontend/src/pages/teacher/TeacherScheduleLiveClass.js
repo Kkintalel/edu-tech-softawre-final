@@ -1,11 +1,15 @@
 import React, { useState } from 'react';
 import { useSelector } from 'react-redux';
-import { Box, Button, Paper, TextField, Typography, Alert } from '@mui/material';
+import { Box, Button, Paper, TextField, Typography, Alert, MenuItem } from '@mui/material';
+import { useTeacherClass } from './TeacherClassContext';
+import { useAssignedTeaching } from './useAssignedTeaching';
 
 const API_BASE_URL = process.env.REACT_APP_BASE_URL || 'http://localhost:5000';
 
 const TeacherScheduleLiveClass = () => {
     const { currentUser } = useSelector((state) => state.user);
+    const { selectedClassId } = useTeacherClass();
+    const { classes, classId, setClassId, subjects, subjectId, setSubjectId } = useAssignedTeaching(currentUser, selectedClassId);
     const [title, setTitle] = useState('');
     const [description, setDescription] = useState('');
     const [scheduledAt, setScheduledAt] = useState('');
@@ -30,8 +34,8 @@ const TeacherScheduleLiveClass = () => {
                     description,
                     scheduledAt,
                     meetingLink,
-                    subject: currentUser?.teachSubject?._id,
-                    classId: currentUser?.teachSclass?._id,
+                    subject: subjectId,
+                    classId: classId,
                     teacher: currentUser?._id,
                     school: currentUser?.school?._id || currentUser?.school,
                 }),
@@ -59,6 +63,12 @@ const TeacherScheduleLiveClass = () => {
             <Paper sx={{ p: 3 }}>
                 <Typography variant="h6" gutterBottom>Schedule Live Class</Typography>
                 <form onSubmit={handleSubmit}>
+                    <TextField select label="Assigned class" fullWidth value={classId} onChange={(e) => setClassId(e.target.value)} required sx={{ mb: 2 }}>
+                        {classes.map((item) => <MenuItem key={item.id} value={item.id}>{item.name}</MenuItem>)}
+                    </TextField>
+                    <TextField select label="Assigned subject" fullWidth value={subjectId} onChange={(e) => setSubjectId(e.target.value)} required sx={{ mb: 2 }}>
+                        {subjects.map((item) => <MenuItem key={item._id || item.id} value={item._id || item.id}>{item.subName}</MenuItem>)}
+                    </TextField>
                     <TextField label="Title" fullWidth value={title} onChange={(e) => setTitle(e.target.value)} required sx={{ mb: 2 }} />
                     <TextField label="Description" fullWidth multiline rows={3} value={description} onChange={(e) => setDescription(e.target.value)} sx={{ mb: 2 }} />
                     <TextField label="Schedule Date & Time" type="datetime-local" fullWidth value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} InputLabelProps={{ shrink: true }} required sx={{ mb: 2 }} />

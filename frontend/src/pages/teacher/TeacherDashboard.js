@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSelector } from 'react-redux';
 import {
     CssBaseline,
     Box,
@@ -30,14 +31,24 @@ import TeacherUploadResults from './TeacherUploadResults';
 import TeacherUploadMaterials from './TeacherUploadMaterials';
 import TeacherScheduleLiveClass from './TeacherScheduleLiveClass';
 import TeacherCreateQuiz from './TeacherCreateQuiz';
+import TeacherAssignmentReview from './TeacherAssignmentReview';
+import { TeacherClassProvider, TeacherClassSwitcher } from './TeacherClassContext';
 
 const TeacherDashboard = () => {
     const [open, setOpen] = useState(false);
+    const { currentUser } = useSelector((state) => state.user);
+    const classValues = [currentUser?.teachSclass, ...(currentUser?.teachSclasses || []), ...(currentUser?.teachSubjects || []).map((subject) => subject.sclassName)].filter(Boolean);
+    const assignedClasses = [...new Map(classValues.map((value) => {
+        const id = String(value?._id || value?.id || value);
+        return [id, { id, name: value?.sclassName || `Class ${id}` }];
+    })).values()];
+    const initialClassId = String(currentUser?.teachSclass?._id || currentUser?.teachSclass || assignedClasses[0]?.id || '');
     const toggleDrawer = () => {
         setOpen(!open);
     };
 
-    return (
+        return (
+            <TeacherClassProvider classes={assignedClasses} initialClassId={initialClassId}>
         <>
             <Box sx={{ display: 'flex' }}>
                 <CssBaseline />
@@ -64,6 +75,7 @@ const TeacherDashboard = () => {
                         >
                             Teacher Dashboard
                         </Typography>
+                        <TeacherClassSwitcher />
                         <AccountMenu />
                     </Toolbar>
                 </AppBar>
@@ -96,6 +108,7 @@ const TeacherDashboard = () => {
                         <Route path="class/student/marks/:studentID/:subjectID" element={<StudentExamMarks situation="Subject" />} />
 
                         <Route path="upload-assignment" element={<TeacherUploadAssignment />} />
+                        <Route path="assignment-review" element={<TeacherAssignmentReview />} />
                         <Route path="upload-results" element={<TeacherUploadResults />} />
                         <Route path="upload-materials" element={<TeacherUploadMaterials />} />
                         <Route path="schedule-live-class" element={<TeacherScheduleLiveClass />} />
@@ -105,6 +118,7 @@ const TeacherDashboard = () => {
                 </Box>
             </Box>
         </>
+            </TeacherClassProvider>
     );
 }
 

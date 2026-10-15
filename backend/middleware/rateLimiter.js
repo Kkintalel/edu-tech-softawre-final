@@ -98,6 +98,15 @@ const fileUploadLimiter = rateLimit({
     }
 });
 
+const demoRequestLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 5,
+    message: 'Too many demo requests. Please try again later.',
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req, res) => ipKeyGenerator(req),
+});
+
 // API export limiter: 10 exports per 60 minutes (prevents data scraping)
 const exportLimiter = rateLimit({
     windowMs: 60 * 60 * 1000, // 60 minutes
@@ -118,5 +127,6 @@ module.exports = {
     studentRegistrationLimiter,
     adminTeacherRegistrationLimiter,
     fileUploadLimiter,
+    demoRequestLimiter,
     exportLimiter
 };

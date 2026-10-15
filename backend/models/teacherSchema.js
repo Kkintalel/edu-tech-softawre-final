@@ -1,5 +1,6 @@
 const mongoose = require("mongoose")
 const { encryptText, decryptText } = require('../utils/encryption');
+const { createSearchTokens } = require('../utils/searchTokens');
 
 const teacherSchema = new mongoose.Schema({
     name: {
@@ -8,16 +9,20 @@ const teacherSchema = new mongoose.Schema({
         set: encryptText,
         get: decryptText
     },
+    searchTokens: { type: [String], default: [], select: false },
     email: {
         type: String,
         required: true,
     },
+    emailSearchTokens: { type: [String], default: [], select: false },
     phone: {
         type: String,
         default: '',
         set: encryptText,
         get: decryptText
     },
+    phoneSearchTokens: { type: [String], default: [], select: false },
+    employeeId: { type: String, default: '', trim: true },
     password: {
         type: String,
         required: true,
@@ -44,6 +49,10 @@ const teacherSchema = new mongoose.Schema({
         ref: 'sclass',
         required: true,
     },
+    teachSclasses: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'sclass',
+    }],
     salary: {
         type: Number,
         default: 0,
@@ -155,9 +164,22 @@ const teacherSchema = new mongoose.Schema({
     }
 }, { timestamps: true });
 
+teacherSchema.pre('validate', function setTeacherSearchTokens(next) {
+    this.searchTokens = createSearchTokens(this.name);
+    this.emailSearchTokens = createSearchTokens(this.email);
+    this.phoneSearchTokens = createSearchTokens(String(this.phone || '').replace(/\D/g, ''));
+    this.employeeIdSearchTokens = createSearchTokens(this.employeeId);
+    next();
+});
+
+teacherSchema.add({ employeeIdSearchTokens: { type: [String], default: [], select: false } });
 teacherSchema.set('toJSON', { getters: true });
 teacherSchema.set('toObject', { getters: true });
 
 teacherSchema.index({ school: 1, email: 1 }, { unique: true });
+teacherSchema.index({ school: 1, searchTokens: 1 });
+teacherSchema.index({ school: 1, emailSearchTokens: 1 });
+teacherSchema.index({ school: 1, phoneSearchTokens: 1 });
+teacherSchema.index({ school: 1, employeeIdSearchTokens: 1 });
 
 module.exports = mongoose.model("teacher", teacherSchema)

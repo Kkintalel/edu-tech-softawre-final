@@ -1,4 +1,6 @@
 const ExpenseClaim = require('../models/expenseClaimSchema');
+const { Account, AccountingPeriod } = require('../models/accountingSchema');
+const AccountingService = require('../services/accountingService');
 const { logEntityCreation, logEntityUpdate } = require('../utils/auditLogger');
 
 const resolveSchoolId = (admin) => {
@@ -92,6 +94,37 @@ const updateExpenseClaimStatus = async (req, res) => {
         const claim = await ExpenseClaim.findById(id);
         if (!claim) {
             return res.status(404).json({ message: 'Expense claim not found.' });
+        }
+
+        if (status === 'Approved') {
+            const openPeriod = await AccountingPeriod.findOne({ schoolId: claim.schoolId, status: 'open' }).sort({ startDate: -1 });
+            const claimTypeMap = {
+                utilities: '5200',
+                maintenance: '5300',
+                transport: '5400',
+                communication: '5500',
+                admin: '5800',
+                supplies: '5100',
+                general: '5800',
+            };
+            const accountCode = claimTypeMap[(claim.claimType || '').toLowerCase()] || '5800';
+            const expenseAccount = await Account.findOne({ schoolId: claim.schoolId, code: accountCode });
+
+            if (expenseAccount) {
+                const projection = await AccountingService.getProjectedBudgetStatus({
+                    schoolId: claim.schoolId,
+                    periodId: openPeriod?._id,
+                    accountId: expenseAccount._id,
+                    amount: claim.amount,
+                });
+
+                if (projection.status === 'over_budget') {
+                    return res.status(400).json({
+                        message: 'Expense approval blocked: projected spending exceeds the approved budget.',
+                        budgetCheck: projection,
+                    });
+                }
+            }
         }
 
         const oldClaim = claim.toObject();

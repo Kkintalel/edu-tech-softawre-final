@@ -231,13 +231,24 @@ export const updateUser = (fields, id, address) => async (dispatch, getState) =>
     }
 }
 
-export const addStuff = (fields, address) => async (dispatch) => {
+export const addStuff = (fields, address) => async (dispatch, getState) => {
     dispatch(authRequest());
 
     try {
-        const result = await axios.post(`${API_BASE_URL}/${address}Create`, fields, {
-            headers: { 'Content-Type': 'application/json' },
-        });
+        const state = getState();
+        const stateUser = state?.user?.currentUser;
+        const storedUser = typeof window !== 'undefined'
+            ? JSON.parse(localStorage.getItem('currentUser') || localStorage.getItem('user') || 'null')
+            : null;
+        const currentUser = stateUser || storedUser || {};
+        const adminId = currentUser?._id || currentUser?.id || null;
+
+        const headers = { 'Content-Type': 'application/json' };
+        if (adminId) {
+            headers['x-admin-id'] = adminId;
+        }
+
+        const result = await axios.post(`${API_BASE_URL}/${address}Create`, fields, { headers });
 
         if (result.data.message) {
             dispatch(authFailed(result.data.message));
@@ -245,6 +256,6 @@ export const addStuff = (fields, address) => async (dispatch) => {
             dispatch(stuffAdded(result.data));
         }
     } catch (error) {
-        dispatch(authError(error));
+        dispatch(authError(getErrorMessage(error)));
     }
 };

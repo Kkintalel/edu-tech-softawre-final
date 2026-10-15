@@ -2,16 +2,25 @@ const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const Student = require('../models/studentSchema.js');
 const Sclass = require('../models/sclassSchema.js');
+const AcademicYear = require('../models/academicYearSchema.js');
 const Parent = require('../models/parentSchema.js');
 const Subject = require('../models/subjectSchema.js');
 const Admin = require('../models/adminSchema.js');
 const Teacher = require('../models/teacherSchema.js');
 const Settings = require('../models/settingsSchema.js');
+const School = require('../models/schoolSchema.js');
+const { Account, AccountingPeriod } = require('../models/accountingSchema.js');
+const AccountingService = require('../services/accountingService.js');
 const { sendFeeConfirmationToParent, sendPaymentReminderToParent, sendSMS } = require('../services/smsService.js');
 const { sendResetPasswordLink, sendEmail, sendPasswordResetEmail } = require('../services/emailService.js');
 const { logAuditAction } = require('../utils/auditLogger');
 const { validateStudentInput, validateStudentUpdateInput, validatePassword, validateEmail } = require('../utils/validation.js');
-const { getAdminIdFromReq, verifySchoolId, verifyEntityBelongsToAdminSchool, enforceSubscriptionStatus } = require('../middleware/schoolAccess.js');
+const { getAdminIdFromReq, getRequestUser, verifySchoolId, verifyEntityBelongsToAdminSchool, enforceSubscriptionStatus } = require('../middleware/schoolAccess.js');
+const { buildFinancialReport, isDateRangeWithinPeriod } = require('../utils/financialReport');
+const { recordFeeAssessment, tagPaymentWithAcademicPeriod } = require('../utils/academicPeriod');
+const { issueAdminToken } = require('../utils/authToken');
+const { invalidateAnalyticsCache } = require('../utils/analyticsCache');
+const { createSearchToken, getSearchTerms } = require('../utils/searchTokens');
 
 const GRADING_TABLES = {
     achievement: [
@@ -260,34 +269,26 @@ const studentRegister = async (req, res) => {
         const requestedAdmissionNo = req.body.admissionNo ? req.body.admissionNo.toString().trim() : '';
         const admissionNo = requestedAdmissionNo || await generateAdmissionNumber(schoolId);
 
-        const passwordPlain = req.body.password && req.body.password.trim().length > 0
-            ? req.body.password.trim()
-            : admissionNo;
-        if (req.body.password && req.body.password.trim().length > 0) {
-            const passwordValidation = validatePassword(passwordPlain);
-            if (!passwordValidation.valid) {
-                return res.status(400).json({ message: passwordValidation.error });
-            }
-        }
+        const passwordPlain = admissionNo;
 
         const salt = await bcrypt.genSalt(10);
         const hashedPass = await bcrypt.hash(passwordPlain, salt);
 
-        const email = await generateUniqueStudentEmail(studentName, admissionNo, schoolId);
+        const email = req.body.email !== undefined && req.body.email !== null && String(req.body.email).trim() !== ''
+            ? String(req.body.email).trim().toLowerCase()
+            : undefined;
 
-        const query = [
-            {
-                school: schoolId,
-                sclassName: req.body.sclassName,
-                rollNum: req.body.rollNum,
-            }
-        ];
+        const query = [];
+
+        if (req.body.rollNum !== undefined && req.body.rollNum !== null && req.body.rollNum !== '') {
+            query.push({ school: schoolId, sclassName: req.body.sclassName, rollNum: Number(req.body.rollNum) });
+        }
 
         if (admissionNo) {
             query.push({ school: schoolId, admissionNo });
         }
 
-        const existingStudent = await Student.findOne({ $or: query });
+        const existingStudent = query.length > 0 ? await Student.findOne({ $or: query }) : null;
 
         if (existingStudent) {
             const conflictField = existingStudent.admissionNo === admissionNo ? 'Admission number' : 'Roll Number';
@@ -298,6 +299,9 @@ const studentRegister = async (req, res) => {
             if (existingBiometricStudent) {
                 return res.status(409).json({ message: 'This fingerprint ID is already registered to another student' });
             }
+        }
+        if (email && await Student.findOne({ school: schoolId, email })) {
+            return res.status(409).json({ message: 'Email already exists for this school' });
         }
         const studentData = {
                 ...req.body,
@@ -315,7 +319,7 @@ const studentRegister = async (req, res) => {
                 school: schoolId,
                 password: hashedPass,
                 role: 'Student',
-                forcePasswordChange: !requestedAdmissionNo && !req.body.password ? true : (!req.body.password ? true : false),
+                forcePasswordChange: false,
         });
 
         const result = await student.save();
@@ -329,7 +333,7 @@ const studentRegister = async (req, res) => {
             res.status(201).json({
                 message: 'Student registered successfully',
                 student: responseStudent,
-                defaultPassword: req.body.password ? undefined : passwordPlain,
+                defaultPassword: passwordPlain,
             });
 
             // Process notifications asynchronously in background (fire and forget)
@@ -342,7 +346,6 @@ const studentRegister = async (req, res) => {
                         <p>Dear Parent/Guardian,</p>
                         <p>${student.name} has been successfully registered in the school system.</p>
                         <p><strong>Admission Number:</strong> ${student.admissionNo}</p>
-                        <p><strong>Email:</strong> ${student.email}</p>
                         <p><strong>Password:</strong> ${passwordPlain}</p>
                         <p>Please log in at <a href="${loginUrl}">${loginUrl}</a> and change the password on first login.</p>
                         <br/><p>Thank you,</p>
@@ -471,6 +474,7 @@ const createStudentFromCsvRow = async (row, schoolId) => {
         admissionNo: admissionNoInput || '',
         rollNum,
         sclassName: sclassId,
+        photo: '',
         parentName,
         parentPhone,
         parentEmail,
@@ -585,11 +589,14 @@ const importStudents = async (req, res) => {
 };
 
 
-const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
 const studentLogIn = async (req, res) => {
     try {
-        const identifier = req.body.email || req.body.admissionNo || req.body.rollNum;
+        const admissionNo = (req.body.admissionNo || req.body.studentIdentifier || '').toString().trim();
+        const identifier = admissionNo;
+
+        if (!admissionNo || !req.body.password) {
+            return res.status(400).send({ message: 'Admission number and password are required' });
+        }
 
         // If mongoose is not connected, fall back to in-memory test DB
         if (mongoose.connection.readyState !== 1) {
@@ -602,39 +609,12 @@ const studentLogIn = async (req, res) => {
             return res.send(safe);
         }
 
-        const normalizedEmail = req.body.email ? req.body.email.toString().trim().toLowerCase() : null;
-        const normalizedAdmissionNo = req.body.admissionNo ? req.body.admissionNo.toString().trim() : null;
-        const normalizedRollNum = req.body.rollNum ? Number(req.body.rollNum) : null;
-        const normalizedName = req.body.studentName ? req.body.studentName.toString().trim() : null;
-
-        let student = null;
+        const normalizedAdmissionNo = admissionNo;
+        let student = await Student.findOne({ admissionNo: normalizedAdmissionNo });
         let usingFallbackStudent = false;
-        if (normalizedEmail) {
-            student = await Student.findOne({ email: normalizedEmail });
-        }
-
-        if (!student && normalizedAdmissionNo) {
-            if (normalizedName) {
-                const nameRegex = new RegExp(`^${escapeRegex(normalizedName)}$`, 'i');
-                student = await Student.findOne({ admissionNo: normalizedAdmissionNo, name: nameRegex });
-            }
-            if (!student) {
-                student = await Student.findOne({ admissionNo: normalizedAdmissionNo });
-            }
-        }
-
-        if (!student && normalizedRollNum !== null) {
-            if (normalizedName) {
-                const nameRegex = new RegExp(`^${escapeRegex(normalizedName)}$`, 'i');
-                student = await Student.findOne({ rollNum: normalizedRollNum, name: nameRegex });
-            }
-            if (!student) {
-                student = await Student.findOne({ rollNum: normalizedRollNum });
-            }
-        }
 
         if (!student) {
-            student = findStudent(identifier, req.body.studentName);
+            student = findStudent(identifier);
             usingFallbackStudent = Boolean(student);
         }
 
@@ -662,6 +642,9 @@ const studentLogIn = async (req, res) => {
                 const studentObj = student.toObject({ getters: true });
                 delete studentObj.password;
                 studentObj.forcePasswordChange = Boolean(studentObj.forcePasswordChange);
+                const linkedSchool = await School.findOne({ $or: [{ _id: studentObj.school?._id || studentObj.school }, { schoolAdmin: studentObj.school?._id || studentObj.school }] }).select('_id');
+                studentObj.settings = await Settings.findOne({ school: linkedSchool?._id || studentObj.school?._id || studentObj.school }).select('branding schoolProfile receiptSettings');
+                studentObj.token = issueAdminToken(studentObj);
                 return res.send(studentObj);
             }
             return res.status(401).send({ message: 'Invalid password', role: 'Student' });
@@ -831,6 +814,10 @@ const updateStudent = async (req, res) => {
         }
 
         const updateData = { ...req.body };
+        if (req.body.totalFees !== undefined && Number(req.body.totalFees) !== Number(student.totalFees || 0)) {
+            await recordFeeAssessment(student, Number(req.body.totalFees), new Date(), getAdminIdFromReq(req));
+            updateData.feeAssessments = student.feeAssessments;
+        }
         if (req.body.password) {
             const salt = await bcrypt.genSalt(10);
             updateData.password = await bcrypt.hash(req.body.password, salt);
@@ -843,6 +830,7 @@ const updateStudent = async (req, res) => {
         if (result) {
             reconcileAmounts(result);
             await result.save();
+            invalidateAnalyticsCache(result.school);
             result.password = undefined;
         }
         res.send(result)
@@ -967,6 +955,7 @@ const createOrUpdatePaymentEntry = (student, paymentData) => {
             status,
             transactionId: normalizedTransactionId,
             balanceAfter: 0,
+            feePeriodKey: student.feePeriodKey || 'initial',
             verifiedBy: '',
             verifiedDate: null,
             provider: provider || '',
@@ -991,6 +980,60 @@ const createOrUpdatePaymentEntry = (student, paymentData) => {
     }
 
     return payment;
+};
+
+const createFeeAccountingJournal = async (student, paymentEntry) => {
+    try {
+        const schoolId = student.school;
+        if (!schoolId) {
+            return null;
+        }
+
+        const openPeriod = await AccountingPeriod.findOne({ schoolId, status: 'open' }).sort({ startDate: -1 });
+        if (!openPeriod) {
+            return null;
+        }
+
+        const cashAccount = await Account.findOne({ schoolId, code: '1000' });
+        const revenueAccount = await Account.findOne({ schoolId, code: '4000' });
+        if (!cashAccount || !revenueAccount) {
+            return null;
+        }
+
+        const amount = Number(paymentEntry.amount || 0);
+        if (!amount || amount <= 0) {
+            return null;
+        }
+
+        return await AccountingService.createJournalEntry({
+            schoolId,
+            periodId: openPeriod._id,
+            description: `Student fee payment - ${student.name || 'Student'} (${paymentEntry.receiptNumber || paymentEntry.reference || 'receipt'})`,
+            sourceModule: 'fees',
+            postedBy: student.school,
+            lines: [
+                {
+                    accountId: cashAccount._id,
+                    debitAmount: amount,
+                    creditAmount: 0,
+                    description: `Fee payment received for ${student.name || 'student'}`,
+                    referenceId: paymentEntry._id || null,
+                    referenceType: 'feePayment',
+                },
+                {
+                    accountId: revenueAccount._id,
+                    debitAmount: 0,
+                    creditAmount: amount,
+                    description: `Fee income recognized for ${student.name || 'student'}`,
+                    referenceId: paymentEntry._id || null,
+                    referenceType: 'feePayment',
+                },
+            ],
+        });
+    } catch (error) {
+        console.error('Accounting journal creation failed for student fee payment:', error.message || error);
+        return null;
+    }
 };
 
 const paymentWebhook = async (req, res) => {
@@ -1026,6 +1069,9 @@ const paymentWebhook = async (req, res) => {
         }
 
         if (!isNaN(totalFees) && Number(totalFees) >= 0) {
+            if (Number(totalFees) !== Number(student.totalFees || 0)) {
+                await recordFeeAssessment(student, Number(totalFees), new Date(), getAdminIdFromReq(req));
+            }
             student.totalFees = Number(totalFees);
         }
 
@@ -1041,11 +1087,16 @@ const paymentWebhook = async (req, res) => {
             provider: provider || '',
             reference: reference || '',
         });
+        await tagPaymentWithAcademicPeriod(student, payment);
 
         reconcileAmounts(student);
         payment.balanceAfter = student.balance;
 
         const result = await student.save();
+
+        if (['Completed', 'Verified'].includes(payment.status)) {
+            await createFeeAccountingJournal(student, payment);
+        }
 
         return res.send({
             message: 'Payment webhook processed successfully',
@@ -1199,6 +1250,9 @@ const studentFeePayment = async (req, res) => {
         console.log('Processing payment for student:', student.name, 'Amount:', amount, 'Method:', paymentMethod);
 
         if (!isNaN(totalFees) && totalFees >= 0) {
+            if (Number(totalFees) !== Number(student.totalFees || 0)) {
+                await recordFeeAssessment(student, Number(totalFees), new Date(), getAdminIdFromReq(req));
+            }
             student.totalFees = Number(totalFees);
         }
 
@@ -1223,11 +1277,17 @@ const studentFeePayment = async (req, res) => {
             chequeNumber: chequeNumber || '',
             paymentNote: paymentNote || '',
         });
+        await tagPaymentWithAcademicPeriod(student, paymentEntry);
 
         reconcileAmounts(student);
         paymentEntry.balanceAfter = student.balance;
 
         const result = await student.save();
+        invalidateAnalyticsCache(student.school);
+
+        if (['Completed', 'Verified'].includes(paymentEntry.status)) {
+            await createFeeAccountingJournal(student, paymentEntry);
+        }
 
         if (student.parentPhone) {
             await sendFeeConfirmationToParent(
@@ -1278,6 +1338,7 @@ const verifyPayment = async (req, res) => {
         payment.balanceAfter = student.balance;
 
         const result = await student.save();
+        invalidateAnalyticsCache(student.school);
         result.password = undefined;
         res.send({ message: 'Payment verified successfully', student: result });
     } catch (error) {
@@ -1301,8 +1362,33 @@ const getPaymentStats = async (req, res) => {
                 : requesterSchool || requesterId;
         if (!(await verifySchoolId(req, res, schoolId || requesterId))) return;
 
-        const students = await Student.find(schoolId ? { school: schoolId } : {});
-        const { period = 'all', month, quarter, year } = req.query;
+        const { period = 'all', month, quarter, year, fromDate, toDate } = req.query;
+        const { classId, stream, paymentMethod, status, academicYear, term } = req.query;
+
+        if (academicYear) {
+            const academicCalendar = await AcademicYear.findOne({ yearName: academicYear }).select('startDate endDate terms');
+            if (academicCalendar) {
+                const normalizeTerm = (value) => (value || '').toString().toLowerCase().replace(/[^a-z0-9]/g, '');
+                const selectedTerm = academicCalendar.terms?.find((calendarTerm) => {
+                    const termNumber = calendarTerm.termNumber ? `term${calendarTerm.termNumber}` : '';
+                    return normalizeTerm(calendarTerm.termName) === normalizeTerm(term) || termNumber === normalizeTerm(term);
+                });
+                const reportPeriod = selectedTerm || academicCalendar;
+
+                if (term && academicCalendar.terms?.length && !selectedTerm) {
+                    return res.status(400).send({ message: `${term} is not configured for academic year ${academicYear}` });
+                }
+                if (!isDateRangeWithinPeriod(
+                    fromDate || reportPeriod.startDate,
+                    toDate || reportPeriod.endDate,
+                    reportPeriod.startDate,
+                    reportPeriod.endDate
+                )) {
+                    return res.status(400).send({ message: 'Selected dates must fall within the chosen academic year and term' });
+                }
+            }
+        }
+
         let periodStart = null;
         let periodEnd = null;
 
@@ -1319,57 +1405,46 @@ const getPaymentStats = async (req, res) => {
             periodEnd = new Date(Date.UTC(Number(year) + 1, 0, 1));
         }
 
-        const isInPeriod = (payment) => {
-            if (!periodStart || !periodEnd) return true;
-            const paymentDate = new Date(payment.date);
-            return paymentDate >= periodStart && paymentDate < periodEnd;
+        const effectiveStart = fromDate ? new Date(`${fromDate}T00:00:00.000Z`) : periodStart;
+        const effectiveEnd = toDate
+            ? new Date(`${toDate}T00:00:00.000Z`)
+            : periodEnd ? new Date(periodEnd.getTime() - 1) : null;
+        if ((fromDate && Number.isNaN(effectiveStart.getTime())) || (toDate && Number.isNaN(effectiveEnd.getTime()))) {
+            return res.status(400).send({ message: 'From Date and To Date must be valid dates' });
+        }
+        if (effectiveStart && effectiveEnd && effectiveStart > effectiveEnd) {
+            return res.status(400).send({ message: 'From Date must be on or before To Date' });
+        }
+
+        const studentQuery = schoolId ? { school: schoolId } : {};
+        if (classId && classId !== 'all') studentQuery.sclassName = classId;
+        let students = await Student.find(studentQuery).populate('sclassName', 'sclassName');
+        students.forEach(reconcileAmounts);
+
+        const dateFilters = {
+            fromDate: effectiveStart ? effectiveStart.toISOString().slice(0, 10) : '',
+            toDate: effectiveEnd ? effectiveEnd.toISOString().slice(0, 10) : '',
+            academicYear,
+            term,
+            paymentMethod,
+            stream,
+            status,
         };
-
-        const studentDetails = students.map((s) => {
-            reconcileAmounts(s);
-            const completedPayments = s.paymentHistory.filter(p => ['Completed', 'Verified'].includes(p.status) && isInPeriod(p));
-            const periodAmountPaid = completedPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
-            return {
-                id: s._id,
-                name: s.name,
-                rollNum: s.rollNum,
-                totalFees: s.totalFees,
-                amountPaid: Number(s.amountPaid || 0),
-                periodAmountPaid,
-                balance: Number(s.balance || 0),
-                paymentStatus: s.paymentStatus,
-                parentPhone: s.parentPhone,
-                lastPaymentDate: s.paymentHistory.length > 0 ? s.paymentHistory[s.paymentHistory.length - 1].date : null,
-                paymentHistory: s.paymentHistory.filter(isInPeriod)
-            };
-        });
-
-        const paymentByMethod = {};
-        students.forEach((s) => {
-            s.paymentHistory.forEach((p) => {
-                if (['Completed', 'Verified'].includes(p.status) && isInPeriod(p)) {
-                    const method = p.paymentMethod || 'Unknown';
-                    paymentByMethod[method] = (paymentByMethod[method] || 0) + Number(p.amount || 0);
-                }
-            });
-        });
-
-        const totalFeesCollected = studentDetails.reduce((sum, s) => sum + s.periodAmountPaid, 0);
-        const totalOutstanding = studentDetails.reduce((sum, s) => sum + s.balance, 0);
-
-        const stats = {
-            totalStudents: studentDetails.length,
-            studentsPaid: studentDetails.filter(s => s.amountPaid > 0).length,
-            studentsNotPaid: studentDetails.filter(s => s.amountPaid === 0).length,
-            totalFeesExpected: studentDetails.reduce((sum, s) => sum + (s.totalFees || 0), 0),
-            totalFeesCollected,
-            totalOutstanding,
-            paymentByMethod,
-            studentDetails,
-            period: periodStart && periodEnd ? { type: period, start: periodStart, end: periodEnd } : { type: 'all' }
+        const report = buildFinancialReport(students, dateFilters);
+        report.studentsNotPaid = report.studentsUnpaid;
+        report.filters = {
+            academicYear: academicYear || '',
+            term: term || '',
+            classId: classId || 'all',
+            stream: stream || 'all',
+            paymentMethod: paymentMethod || 'all',
+            status: status || 'all',
+            fromDate: dateFilters.fromDate,
+            toDate: dateFilters.toDate,
         };
+        report.period = periodStart && periodEnd ? { type: period, start: periodStart, end: periodEnd } : { type: 'all' };
 
-        res.send(stats);
+        res.send(report);
     } catch (error) {
         console.error('Payment stats error:', error);
         res.status(500).json(error);
@@ -1381,28 +1456,53 @@ const sendPaymentReminder = async (req, res) => {
     try {
         const { studentId } = req.params;
         const student = await Student.findById(studentId);
-        if (!verifyEntityBelongsToAdminSchool(req, res, student)) return;
+        if (!(await verifyEntityBelongsToAdminSchool(req, res, student))) return;
 
-        if (!student || !student.parentPhone) {
-            return res.send({ message: 'Parent phone number not found' });
+        const parentPhone = student.parentPhone || student.guardianPhone;
+        if (!parentPhone) {
+            return res.status(400).send({ message: 'Parent or guardian phone number not found for this student' });
         }
 
+        reconcileAmounts(student);
+        const schoolId = student.school?._id || student.school;
+        const school = await School.findOne({
+            $or: [{ _id: schoolId }, { schoolAdmin: schoolId }],
+        }).select('paymentSettings').lean();
+        const paybillCode = school?.paymentSettings?.paybillCode || 'Contact school office';
         const result = await sendPaymentReminderToParent(
             student.name,
-            student.parentPhone,
+            student.admissionNo,
+            parentPhone,
             student.totalFees,
+            student.amountPaid,
             student.balance,
-            'SCHOOL-PAYBILL-001' // You should make this configurable
+            paybillCode,
+            schoolId
         );
 
-        res.send({ message: 'Payment reminder sent', result });
+        if (!result.success) {
+            return res.status(502).send({ message: result.error || 'Fee reminder could not be sent', result });
+        }
+
+        res.send({
+            message: 'Payment reminder sent',
+            reminder: {
+                studentName: student.name,
+                admissionNo: student.admissionNo,
+                totalFees: student.totalFees,
+                amountPaid: student.amountPaid,
+                balance: student.balance,
+                paybillCode,
+            },
+            result,
+        });
     } catch (error) {
         res.status(500).json(error);
     }
 }
 
 const updateExamResult = async (req, res) => {
-    const { subName, marksObtained, examType, term, gradingSystem, changeReason } = req.body;
+    const { subName, marksObtained, examType, term, academicYear, gradingSystem, changeReason } = req.body;
 
     try {
         if (!subName) {
@@ -1421,9 +1521,10 @@ const updateExamResult = async (req, res) => {
 
         const normalizedGradingSystem = GRADING_TABLES[gradingSystem] ? gradingSystem : 'achievement';
         const normalizedTerm = (term || 'Term 1').toString().trim() || 'Term 1';
+        const normalizedAcademicYear = (academicYear || new Date().getFullYear()).toString().trim();
         const computedGrade = calculateResultGrade(numericMarks, normalizedGradingSystem);
 
-        const student = await Student.findById(req.params.id).select('_id name school examResult reportCardStatus');
+        const student = await Student.findById(req.params.id).select('_id name school sclassName examResult reportCardStatus');
         if (!(await verifyEntityBelongsToAdminSchool(req, res, student))) return;
 
         if (!student) {
@@ -1433,33 +1534,41 @@ const updateExamResult = async (req, res) => {
             return res.status(409).send({ message: 'This report card is published. Reopen it before changing marks.' });
         }
 
+        const requester = await getRequestUser(req);
+        const subject = await Subject.findById(subName).select('school sclassName teacher');
+        if (!subject || String(subject.school) !== String(student.school) || String(subject.sclassName) !== String(student.sclassName)) {
+            return res.status(403).send({ message: 'Subject does not belong to this student’s school and class' });
+        }
+        const role = requester?.user?.role;
+        const isPrivilegedAdmin = requester?.type === 'admin' && ['Admin', 'SuperAdmin'].includes(role);
+        const explicitlyAuthorized = requester?.type === 'admin' && requester.user?.permissions?.manageExaminations === true;
+        const isAssignedTeacher = requester?.type === 'teacher' && (
+            String(subject.teacher || '') === String(requester.user._id) ||
+            (requester.user.teachSubjects || []).some((id) => String(id?._id || id) === String(subName))
+        ) && (
+            String(requester.user.teachSclass?._id || requester.user.teachSclass || '') === String(student.sclassName) ||
+            (requester.user.teachSclasses || []).some((id) => String(id?._id || id) === String(student.sclassName))
+        );
+        if (!isPrivilegedAdmin && !explicitlyAuthorized && !isAssignedTeacher) {
+            return res.status(403).send({ message: 'You are not authorised to enter marks for this subject' });
+        }
+
         const existingResult = student.examResult?.find((result) =>
-            String(result.subName) === String(subName) && result.examType === normalizedExamType
+            String(result.subName) === String(subName) &&
+            result.examType === normalizedExamType &&
+            normalizeAcademicTerm(result.term) === normalizeAcademicTerm(normalizedTerm) &&
+            String(result.academicYear || new Date().getFullYear()) === normalizedAcademicYear
         );
         const previousMark = existingResult?.marksObtained;
 
-        const updateFields = {
-            'examResult.$[elem].marksObtained': numericMarks,
-            'examResult.$[elem].examType': normalizedExamType,
-            'examResult.$[elem].term': normalizedTerm,
-            'examResult.$[elem].gradingSystem': normalizedGradingSystem,
-            'examResult.$[elem].grade': computedGrade.grade,
-            'examResult.$[elem].level': computedGrade.level,
-            'examResult.$[elem].points': computedGrade.points,
-            'examResult.$[elem].remark': computedGrade.remark,
-        };
-
-        const updateResult = await Student.updateOne(
-            {
-                _id: req.params.id,
-                'examResult.subName': subName,
-                'examResult.examType': normalizedExamType,
-            },
-            { $set: updateFields },
-            { arrayFilters: [{ 'elem.subName': subName, 'elem.examType': normalizedExamType }] }
-        );
-
-        if (updateResult.matchedCount > 0) {
+        if (existingResult) {
+            existingResult.marksObtained = numericMarks;
+            existingResult.term = normalizedTerm;
+            existingResult.academicYear = normalizedAcademicYear;
+            existingResult.gradingSystem = normalizedGradingSystem;
+            Object.assign(existingResult, computedGrade);
+            await student.save();
+            invalidateAnalyticsCache(student.school);
             const updatedStudent = await Student.findById(req.params.id).populate('examResult.subName', 'subName');
             if (previousMark !== undefined && Number(previousMark) !== Number(marksObtained)) {
                 const actorId = getAdminIdFromReq(req);
@@ -1501,6 +1610,7 @@ const updateExamResult = async (req, res) => {
             subName,
             examType: normalizedExamType,
             term: normalizedTerm,
+            academicYear: normalizedAcademicYear,
             marksObtained: numericMarks,
             gradingSystem: normalizedGradingSystem,
             ...computedGrade,
@@ -1510,6 +1620,7 @@ const updateExamResult = async (req, res) => {
             { _id: req.params.id },
             { $push: { examResult: newEntry } }
         );
+        invalidateAnalyticsCache(student.school);
 
         const updatedStudent = await Student.findById(req.params.id).populate('examResult.subName', 'subName');
         return res.send(updatedStudent);
@@ -1669,6 +1780,10 @@ const changeStudentPassword = async (req, res) => {
 // Admin-driven student password reset (Admin or SuperAdmin)
 const resetStudentPasswordByAdmin = async (req, res) => {
     try {
+        if (!['Admin', 'SuperAdmin'].includes(req.admin?.role)) {
+            return res.status(403).send({ message: 'Only school admins can reset student passwords' });
+        }
+
         const adminId = getAdminIdFromReq(req);
         const studentId = req.params.studentId || req.params.id;
         const { newPassword } = req.body;
@@ -1719,9 +1834,20 @@ const resetStudentPasswordByAdmin = async (req, res) => {
 
 const getAcademicReport = async (req, res) => {
     try {
-    const requestedTerm = (req.query.term || 'Term 1').toString().trim() || 'Term 1';
+        const requestedTerm = normalizeAcademicTerm(req.query.term || 'Term 1');
+        const requestedAssessment = normalizeAssessment(req.query.assessment || req.query.examType || 'END_TERM');
+        const requestedAcademicYear = (req.query.academicYear || req.query.session || new Date().getFullYear()).toString().trim();
         const requestedSchoolId = req.params.schoolId;
+        const requestedClassId = req.query.classId || req.query.class || req.query.sclassId || '';
+        const requestedStream = (req.query.stream || '').toString().trim();
+        const requestedStudentId = req.query.studentId || req.query.student || '';
+        const requestedSubjectId = req.query.subjectId || req.query.subject || '';
         const requesterId = getAdminIdFromReq(req);
+        const analyticsRequester = await getRequestUser(req);
+        const analyticsRole = analyticsRequester?.user?.role;
+        if (analyticsRequester?.type !== 'admin' || !['Admin', 'SuperAdmin'].includes(analyticsRole)) {
+            return res.status(403).send({ message: 'Only school administrators can view school-wide academic analytics' });
+        }
         const requester = requesterId ? await Admin.findById(requesterId).select('role school') : null;
         const requesterSchool = requester?.school && typeof requester.school === 'object'
             ? requester.school._id || requester.school.id
@@ -1733,9 +1859,25 @@ const getAcademicReport = async (req, res) => {
                 : requesterSchool || requesterId;
         if (!(await verifySchoolId(req, res, schoolId || requesterId))) return;
 
-        const students = await Student.find(schoolId ? { school: schoolId } : {})
-            .populate({ path: 'examResult.subName', select: 'subName teacher', populate: { path: 'teacher', select: 'name' } })
-            .populate('sclassName', 'sclassName');
+        const studentQuery = buildAcademicReportQuery({
+            schoolId,
+            academicYear: requestedAcademicYear,
+            term: requestedTerm,
+            assessment: requestedAssessment,
+            classId: requestedClassId,
+            stream: requestedStream,
+            studentId: requestedStudentId,
+        });
+
+        const schoolQuery = schoolId ? { school: schoolId } : {};
+        const [students, schoolClasses, schoolSubjects, optionStudents] = await Promise.all([
+            Student.find(studentQuery)
+                .populate({ path: 'examResult.subName', select: 'subName teacher sclassName', populate: { path: 'teacher', select: 'name' } })
+                .populate('sclassName', 'sclassName'),
+            Sclass.find(schoolQuery).select('_id sclassName'),
+            Subject.find(schoolQuery).select('_id subName sclassName'),
+            Student.find(schoolQuery).select('_id name sclassName stream streamName').populate('sclassName', 'sclassName'),
+        ]);
         const subjectTeacherMap = new Map();
         const reportTeachers = await Teacher.find(schoolId ? { school: schoolId } : {})
             .select('name teachSubject teachSubjects teachSclass');
@@ -1746,9 +1888,15 @@ const getAcademicReport = async (req, res) => {
             });
         });
 
-        const getTermResults = (student) => (student.examResult || [])
-            .filter((result) => (result.term || 'Term 1') === requestedTerm)
-            .map(getComputedResult);
+        const getTermResults = (student) => filterResultsForReport(
+            student.examResult || [],
+            requestedTerm,
+            requestedAssessment,
+            requestedAcademicYear,
+            student.academicYear || String(new Date().getFullYear())
+        )
+            .filter((result) => !requestedSubjectId || requestedSubjectId === 'all' || String(result.subName?._id || result.subName) === String(requestedSubjectId))
+            .map((result) => ({ ...result, ...getComputedResult(result) }));
         const totals = students.map((student) => ({
             id: String(student._id),
             totalMarks: getTermResults(student).reduce((sum, result) => sum + Number(result.marksObtained || 0), 0),
@@ -1781,6 +1929,7 @@ const getAcademicReport = async (req, res) => {
                 name: student.name,
                 rollNum: student.rollNum,
                 admissionNo: student.admissionNo,
+                classId: String(student.sclassName?._id || student.sclassName || ''),
                 class: student.sclassName?.sclassName || student.sclassName || 'N/A',
                 stream: student.stream || student.streamName || '',
                 session: student.term || student.session || student.academicYear || '',
@@ -1791,7 +1940,7 @@ const getAcademicReport = async (req, res) => {
                 suggestedPrincipalRemarks: automaticRemarks.principal,
                 reportSummary: {
                     totalMarks: studentTotal.totalMarks,
-                    totalMarksPossible: (student.examResult || []).length * 100,
+                    totalMarksPossible: termResults.length * 100,
                     average: termAverage,
                     totalPoints: studentTotal.totalPoints,
                     overallRank: rankFor(studentTotal.totalMarks, 'totalMarks'),
@@ -1803,6 +1952,7 @@ const getAcademicReport = async (req, res) => {
                     return {
                     subject: result.subName?.subName || 'Unknown',
                     subjectId: String(result.subName?._id || result.subName),
+                    subjectClassId: String(result.subName?.sclassName?._id || result.subName?.sclassName || student.sclassName?._id || student.sclassName || ''),
                     subjectTeacher: result.subName?.teacher?.name || subjectTeacherMap.get(String(result.subName?._id || result.subName)) || 'Not assigned',
                     examType: result.examType || 'CAT',
                     marksObtained: result.marksObtained,
@@ -1817,25 +1967,292 @@ const getAcademicReport = async (req, res) => {
             };
         });
 
+        report.forEach((studentReport) => {
+            const classPeers = report.filter((peer) => peer.classId === studentReport.classId);
+            const streamPeers = classPeers.filter((peer) => peer.stream === studentReport.stream);
+            studentReport.classRank = 1 + classPeers.filter((peer) => peer.reportSummary.totalMarks > studentReport.reportSummary.totalMarks).length;
+            studentReport.streamRank = studentReport.stream
+                ? 1 + streamPeers.filter((peer) => peer.reportSummary.totalMarks > studentReport.reportSummary.totalMarks).length
+                : null;
+        });
+
+        const classResultMap = new Map();
+        report.forEach((studentReport) => {
+            const classKey = studentReport.classId || 'unassigned';
+            if (!classResultMap.has(classKey)) {
+                classResultMap.set(classKey, {
+                    classId: classKey,
+                    className: studentReport.class || 'Unassigned',
+                    students: [],
+                    totalMarks: 0,
+                    averageMarks: 0,
+                    topStudent: null,
+                });
+            }
+            const classEntry = classResultMap.get(classKey);
+            classEntry.students.push(studentReport);
+            classEntry.totalMarks += Number(studentReport.reportSummary?.average || 0);
+        });
+
+        const classResults = [...classResultMap.values()].map((entry) => {
+            const sortedStudents = [...entry.students].sort((a, b) => Number(b.reportSummary?.totalMarks || 0) - Number(a.reportSummary?.totalMarks || 0));
+            const topStudent = sortedStudents[0] || null;
+            return {
+                classId: entry.classId,
+                className: entry.className,
+                studentCount: sortedStudents.length,
+                averageMarks: sortedStudents.length ? entry.totalMarks / sortedStudents.length : 0,
+                topStudent: topStudent ? {
+                    name: topStudent.name,
+                    totalMarks: topStudent.reportSummary?.totalMarks || 0,
+                    average: topStudent.reportSummary?.average || 0,
+                    rank: 1,
+                } : null,
+            };
+        }).sort((a, b) => b.averageMarks - a.averageMarks)
+            .map((entry, index) => ({ ...entry, rank: index + 1 }));
+
+        const streamResultMap = new Map();
+        report.filter((studentReport) => studentReport.stream).forEach((studentReport) => {
+            const key = `${studentReport.classId}:${studentReport.stream}`;
+            if (!streamResultMap.has(key)) {
+                streamResultMap.set(key, { classId: studentReport.classId, className: studentReport.class, stream: studentReport.stream, totalAverage: 0, students: [] });
+            }
+            const entry = streamResultMap.get(key);
+            entry.totalAverage += Number(studentReport.reportSummary.average || 0);
+            entry.students.push(studentReport);
+        });
+        const streamResults = [...streamResultMap.values()].map((entry) => {
+            const topStudent = [...entry.students].sort((a, b) => b.reportSummary.totalMarks - a.reportSummary.totalMarks)[0];
+            return {
+                classId: entry.classId,
+                className: entry.className,
+                stream: entry.stream,
+                studentCount: entry.students.length,
+                averageMarks: entry.students.length ? entry.totalAverage / entry.students.length : 0,
+                topStudent: topStudent ? { name: topStudent.name, totalMarks: topStudent.reportSummary.totalMarks } : null,
+            };
+        }).sort((a, b) => a.className.localeCompare(b.className) || b.averageMarks - a.averageMarks);
+        let previousStreamClass = '';
+        let streamRank = 0;
+        streamResults.forEach((entry) => {
+            if (entry.classId !== previousStreamClass) streamRank = 0;
+            entry.rank = ++streamRank;
+            previousStreamClass = entry.classId;
+        });
+
+        const subjectResultMap = new Map();
+        report.forEach((studentReport) => studentReport.results.forEach((result) => {
+            const key = `${result.subjectClassId}:${result.subjectId}`;
+            if (!subjectResultMap.has(key)) {
+                subjectResultMap.set(key, { subjectId: result.subjectId, subject: result.subject, classId: result.subjectClassId, marks: [], gradeCounts: {} });
+            }
+            const entry = subjectResultMap.get(key);
+            entry.marks.push(Number(result.marksObtained || 0));
+            entry.gradeCounts[result.grade] = (entry.gradeCounts[result.grade] || 0) + 1;
+        }));
+        schoolSubjects.forEach((subject) => {
+            const classId = String(subject.sclassName?._id || subject.sclassName || '');
+            const isInScope = report.some((studentReport) => studentReport.classId === classId);
+            const matchesSubject = !requestedSubjectId || requestedSubjectId === 'all' || String(subject._id) === String(requestedSubjectId);
+            const key = `${classId}:${String(subject._id)}`;
+            if (isInScope && matchesSubject && !subjectResultMap.has(key)) {
+                subjectResultMap.set(key, { subjectId: String(subject._id), subject: subject.subName, classId, marks: [], gradeCounts: {} });
+            }
+        });
+        const subjectResults = [...subjectResultMap.values()].map((entry) => {
+            const expectedStudents = report.filter((studentReport) => studentReport.classId === entry.classId).length;
+            const className = report.find((studentReport) => studentReport.classId === entry.classId)?.class || 'N/A';
+            const marksTotal = entry.marks.reduce((total, marks) => total + marks, 0);
+            return {
+                subjectId: entry.subjectId,
+                subject: entry.subject,
+                classId: entry.classId,
+                className,
+                averageMarks: entry.marks.length ? marksTotal / entry.marks.length : 0,
+                studentsWithMarks: entry.marks.length,
+                expectedStudents,
+                gradeCounts: entry.gradeCounts,
+            };
+        }).sort((a, b) => a.className.localeCompare(b.className) || a.subject.localeCompare(b.subject));
+        const rankedSubjects = [...subjectResults].sort((a, b) => b.averageMarks - a.averageMarks);
+
+        const comparisonResults = students.flatMap((student) => filterResultsForReport(
+            student.examResult || [],
+            'all',
+            'all',
+            requestedAcademicYear,
+            student.academicYear || String(new Date().getFullYear())
+        ).filter((result) => !requestedSubjectId || requestedSubjectId === 'all' || String(result.subName?._id || result.subName) === String(requestedSubjectId))
+            .map((result) => ({ result: getComputedResult(result), term: normalizeAcademicTerm(result.term), examType: normalizeAssessment(result.examType) })));
+        const comparisonMap = new Map();
+        comparisonResults.forEach(({ result, term, examType }) => {
+            const key = `${term}:${examType}`;
+            if (!comparisonMap.has(key)) comparisonMap.set(key, { term, examType, marksTotal: 0, count: 0 });
+            const entry = comparisonMap.get(key);
+            entry.marksTotal += Number(result.marksObtained || 0);
+            entry.count += 1;
+        });
+        const comparisonData = ['Term 1', 'Term 2', 'Term 3'].map((term) => {
+            const getAverage = (examType) => {
+                const entry = comparisonMap.get(`${term}:${examType}`);
+                return entry?.count ? entry.marksTotal / entry.count : null;
+            };
+            return { term, CAT: getAverage('CAT'), END_TERM: getAverage('END_TERM') };
+        });
+        const examComparison = ['CAT', 'END_TERM'].map((examType) => {
+            const entry = comparisonMap.get(`${requestedTerm}:${examType}`);
+            return { examType, averageMarks: entry?.count ? entry.marksTotal / entry.count : null, resultCount: entry?.count || 0 };
+        });
+
+        const gradeMap = new Map();
+        report.forEach((studentReport) => studentReport.results.forEach((result) => {
+            gradeMap.set(result.grade, (gradeMap.get(result.grade) || 0) + 1);
+        }));
+        const gradeDistribution = [...gradeMap.entries()].map(([grade, count]) => ({ grade, count })).sort((a, b) => a.grade.localeCompare(b.grade));
+
+        const expectedSubjectsByClass = new Map();
+        schoolSubjects.forEach((subject) => {
+            const classId = String(subject.sclassName?._id || subject.sclassName || '');
+            if (!expectedSubjectsByClass.has(classId)) expectedSubjectsByClass.set(classId, []);
+            expectedSubjectsByClass.get(classId).push({ id: String(subject._id), name: subject.subName });
+        });
+        const incompleteAssessments = [];
+        report.forEach((studentReport) => {
+            const expectedSubjects = (expectedSubjectsByClass.get(studentReport.classId) || [])
+                .filter((subject) => !requestedSubjectId || requestedSubjectId === 'all' || subject.id === String(requestedSubjectId));
+            const completedSubjectIds = new Set(studentReport.results.map((result) => result.subjectId));
+            const missingSubjects = expectedSubjects.filter((subject) => !completedSubjectIds.has(subject.id));
+            studentReport.missingSubjects = missingSubjects.map((subject) => subject.name);
+            studentReport.assessmentComplete = missingSubjects.length === 0;
+            if (missingSubjects.length > 0) {
+                incompleteAssessments.push({
+                    studentId: studentReport.id,
+                    name: studentReport.name,
+                    className: studentReport.class,
+                    stream: studentReport.stream,
+                    missingSubjects: studentReport.missingSubjects,
+                });
+            }
+        });
+
+        const filteredReport = requestedStudentId && requestedStudentId !== 'all'
+            ? report.filter((studentReport) => String(studentReport.id) === String(requestedStudentId))
+            : report;
+        const filterOptions = {
+            classes: schoolClasses.map((schoolClass) => ({ id: String(schoolClass._id), name: schoolClass.sclassName })).sort((a, b) => a.name.localeCompare(b.name)),
+            streams: [...new Set(optionStudents.map((student) => student.stream || student.streamName).filter(Boolean))].sort(),
+            students: optionStudents.map((student) => ({
+                id: String(student._id),
+                name: student.name,
+                className: student.sclassName?.sclassName || '',
+                stream: student.stream || student.streamName || '',
+            })).sort((a, b) => a.name.localeCompare(b.name)),
+            subjects: schoolSubjects.map((subject) => ({ id: String(subject._id), name: subject.subName, classId: String(subject.sclassName?._id || subject.sclassName || '') })).sort((a, b) => a.name.localeCompare(b.name)),
+        };
+
         const classTeacherMap = new Map();
         const classIds = [...new Set(students.map((student) => String(student.sclassName?._id || student.sclassName)).filter(Boolean))];
         const classTeachers = await Teacher.find({
             ...(schoolId ? { school: schoolId } : {}),
-            teachSclass: { $in: classIds },
-        }).select('name teachSclass');
+            $or: [{ teachSclass: { $in: classIds } }, { teachSclasses: { $in: classIds } }],
+        }).select('name teachSclass teachSclasses');
         classTeachers.forEach((teacher) => {
-            const classId = String(teacher.teachSclass);
-            if (!classTeacherMap.has(classId)) classTeacherMap.set(classId, teacher.name || 'Not assigned');
+            [teacher.teachSclass, ...(teacher.teachSclasses || [])].filter(Boolean).forEach((classValue) => {
+                const classId = String(classValue?._id || classValue);
+                if (!classTeacherMap.has(classId)) classTeacherMap.set(classId, teacher.name || 'Not assigned');
+            });
         });
         report.forEach((studentReport, index) => {
             const student = students[index];
             studentReport.classTeacher = classTeacherMap.get(String(student.sclassName?._id || student.sclassName)) || 'Not assigned';
         });
 
-        res.send({ totalStudents: students.length, academicReport: report });
+        res.send({
+            totalStudents: report.length,
+            academicReport: filteredReport,
+            classResults,
+            streamResults,
+            subjectResults,
+            highestSubjectAverage: rankedSubjects[0] || null,
+            lowestSubjectAverage: rankedSubjects[rankedSubjects.length - 1] || null,
+            gradeDistribution,
+            comparisonData,
+            examComparison,
+            incompleteAssessments,
+            summary: {
+                meanScore: report.length ? report.reduce((total, item) => total + Number(item.reportSummary.average || 0), 0) / report.length : 0,
+                totalPoints: report.reduce((total, item) => total + Number(item.reportSummary.totalPoints || 0), 0),
+                incompleteCount: incompleteAssessments.length,
+            },
+            filterOptions,
+            selectedFilters: {
+                academicYear: requestedAcademicYear,
+                term: requestedTerm,
+                assessment: requestedAssessment,
+                classId: requestedClassId,
+                stream: requestedStream,
+                studentId: requestedStudentId,
+                subjectId: requestedSubjectId,
+            },
+        });
     } catch (error) {
         res.status(500).json(error);
     }
+};
+
+const normalizeAcademicTerm = (value) => {
+    const term = (value || 'Term 1').toString().trim();
+    const normalized = term.toLowerCase().replace(/\s+/g, ' ');
+    const knownTerms = {
+        'term 1': 'Term 1',
+        'term one': 'Term 1',
+        't1': 'Term 1',
+        'term 2': 'Term 2',
+        'term two': 'Term 2',
+        't2': 'Term 2',
+        'term 3': 'Term 3',
+        'term three': 'Term 3',
+        't3': 'Term 3',
+    };
+    return knownTerms[normalized] || term || 'Term 1';
+};
+
+const normalizeAssessment = (value) => {
+    const normalized = (value || 'END_TERM').toString().trim().toUpperCase().replace(/[-\s]+/g, '_');
+    const mapping = {
+        'END_TERM': 'END_TERM',
+        'ENDTERM': 'END_TERM',
+        'EXAM': 'END_TERM',
+        'CAT': 'CAT',
+        'CONTINUOUS_ASSESSMENT': 'CAT',
+    };
+    return mapping[normalized] || normalized || 'END_TERM';
+};
+
+const buildAcademicReportQuery = ({ schoolId, classId, stream } = {}) => {
+    const query = {};
+
+    if (schoolId) query.school = schoolId;
+    if (classId && classId !== 'all' && classId !== 'All Classes') query.sclassName = classId;
+    if (stream && stream !== 'all' && stream !== 'All Streams' && stream !== 'All') query.stream = stream;
+
+    return query;
+};
+
+const filterResultsForReport = (results = [], requestedTerm = 'all', requestedAssessment = 'all', requestedAcademicYear = 'all', fallbackYear = String(new Date().getFullYear())) => {
+    const selectedTerm = requestedTerm && requestedTerm !== 'all' ? normalizeAcademicTerm(requestedTerm) : 'all';
+    const selectedAssessment = requestedAssessment && requestedAssessment !== 'all' ? normalizeAssessment(requestedAssessment) : 'all';
+    const selectedYear = requestedAcademicYear?.toString() || 'all';
+
+    return (results || []).filter((result) => {
+        const resultTerm = normalizeAcademicTerm(result?.term || 'Term 1');
+        const resultAssessment = normalizeAssessment(result?.examType || 'CAT');
+        const resultYear = String(result?.academicYear || fallbackYear || new Date().getFullYear());
+        return (selectedTerm === 'all' || resultTerm === selectedTerm)
+            && (selectedAssessment === 'all' || resultAssessment === selectedAssessment)
+            && (selectedYear === 'all' || resultYear === selectedYear);
+    });
 };
 
 const studentAttendance = async (req, res) => {
@@ -1886,6 +2303,7 @@ const studentAttendance = async (req, res) => {
         }
 
         const result = await student.save();
+        invalidateAnalyticsCache(student.school);
         return res.send(result);
     } catch (error) {
         console.error('Attendance update error:', error);
@@ -1964,41 +2382,71 @@ const removeStudentAttendance = async (req, res) => {
     }
 };
 
+const buildStudentSearchSchoolFilter = ({ schoolId, requesterId, requesterRole, requesterSchool } = {}) => {
+    if (requesterRole === 'SuperAdmin') {
+        return schoolId ? { school: schoolId } : {};
+    }
+
+    return {
+        school: {
+            $in: [...new Set([requesterSchool, schoolId, requesterId].filter(Boolean).map(String))],
+        },
+    };
+};
+
+const buildStudentSearchConditions = ({ rollNum = '', admissionNo = '', query = '' } = {}) => {
+    const searchConditions = [];
+    const digitsOnly = (value) => typeof value === 'string' && /^[0-9]+$/.test(value);
+    const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    if (rollNum) {
+        searchConditions.push(digitsOnly(rollNum)
+            ? { rollNum: Number(rollNum) }
+            : { rollNum: { $regex: escapeRegex(rollNum), $options: 'i' } });
+    }
+
+    if (admissionNo) {
+        searchConditions.push({ admissionNo: { $regex: escapeRegex(admissionNo), $options: 'i' } });
+    }
+
+    if (query) {
+        if (digitsOnly(query)) searchConditions.push({ rollNum: Number(query) });
+        searchConditions.push({ admissionNo: { $regex: escapeRegex(query), $options: 'i' } });
+
+        const tokens = getSearchTerms(query)
+            .filter((term) => term.length >= 2)
+            .map((term) => createSearchToken(term.slice(0, 20)));
+        if (tokens.length) {
+            searchConditions.push({
+                $or: [
+                    { $and: tokens.map((token) => ({ searchTokens: token })) },
+                    { $and: tokens.map((token) => ({ parentNameSearchTokens: token })) },
+                ],
+            });
+        }
+    }
+
+    return searchConditions;
+};
+
 const searchStudent = async (req, res) => {
     try {
         const { schoolId } = req.params;
         const rollNum = String(req.query.rollNum || '').trim();
         const admissionNo = String(req.query.admissionNo || '').trim();
         const query = String(req.query.query || '').trim();
+        const requesterId = getAdminIdFromReq(req);
+        const requester = requesterId ? await Admin.findById(requesterId).select('role school') : null;
 
         if (!(await verifySchoolId(req, res, schoolId))) return;
 
-        const searchQuery = { school: schoolId };
-        const searchConditions = [];
-        const digitsOnly = (value) => typeof value === 'string' && /^[0-9]+$/.test(value);
-
-        if (rollNum) {
-            if (digitsOnly(rollNum)) {
-                searchConditions.push({ rollNum: Number(rollNum) });
-            } else {
-                searchConditions.push({ rollNum: { $regex: rollNum, $options: 'i' } });
-            }
-        }
-
-        if (admissionNo) {
-            searchConditions.push({ admissionNo: { $regex: admissionNo, $options: 'i' } });
-        }
-
-        if (query) {
-            if (digitsOnly(query)) {
-                searchConditions.push({ rollNum: Number(query) });
-            }
-            searchConditions.push(
-                { admissionNo: { $regex: query, $options: 'i' } },
-                { name: { $regex: query, $options: 'i' } },
-                { parentName: { $regex: query, $options: 'i' } }
-            );
-        }
+        const searchQuery = buildStudentSearchSchoolFilter({
+            schoolId,
+            requesterId,
+            requesterRole: requester?.role,
+            requesterSchool: requester?.school,
+        });
+        const searchConditions = buildStudentSearchConditions({ rollNum, admissionNo, query });
 
         if (searchConditions.length === 0) {
             return res.status(400).send({ message: 'Please provide a search query (rollNum, admissionNo, or general query)' });
@@ -2099,7 +2547,13 @@ module.exports = {
     resetStudentPasswordByAdmin,
     cleanupTempStudent,
     getAcademicReport,
+    buildAcademicReportQuery,
+    filterResultsForReport,
     searchStudent,
+    buildStudentSearchSchoolFilter,
+    buildStudentSearchConditions,
+    createOrUpdatePaymentEntry,
+    reconcileAmounts,
     searchChequePayment,
     importStudents,
     generateUniqueStudentEmail,

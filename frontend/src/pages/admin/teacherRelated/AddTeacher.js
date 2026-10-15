@@ -1,11 +1,14 @@
 import React, { useEffect, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate, useParams } from 'react-router-dom';
-import { getAllSclasses, getTeacherFreeClassSubjects, getSubjectDetails } from '../../../redux/sclassRelated/sclassHandle';
+import axios from 'axios';
+import { getAllSclasses, getSubjectDetails } from '../../../redux/sclassRelated/sclassHandle';
 import Popup from '../../../components/Popup';
 import { registerUser } from '../../../redux/userRelated/userHandle';
 import { underControl } from '../../../redux/userRelated/userSlice';
 import { CircularProgress } from '@mui/material';
+
+const API_BASE_URL = process.env.REACT_APP_BASE_URL || 'http://localhost:5000';
 
 const AddTeacher = () => {
   const params = useParams()
@@ -20,7 +23,7 @@ const AddTeacher = () => {
     : schoolValue;
 
   const { status, response, error } = useSelector(state => state.user);
-  const { sclassesList, subjectsList, subjectDetails } = useSelector((state) => state.sclass);
+  const { sclassesList, subjectDetails } = useSelector((state) => state.sclass);
 
   // Fetch classes on mount (if no subject ID in params) or fetch subject details (if subject ID in params)
   useEffect(() => {
@@ -33,50 +36,56 @@ const AddTeacher = () => {
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [employeeId, setEmployeeId] = useState('');
   const [password, setPassword] = useState('')
   const [phone, setPhone] = useState('');
   const [salary, setSalary] = useState('0');
   const [bankName, setBankName] = useState('');
   const [bankAccount, setBankAccount] = useState('');
   const [accountHolderName, setAccountHolderName] = useState('');
-  const [selectedClass, setSelectedClass] = useState('');
-  const [selectedSubjects, setSelectedSubjects] = useState([]);
+  const [selectedClasses, setSelectedClasses] = useState([]);
+  const [subjectsByClass, setSubjectsByClass] = useState({});
+  const [selectedSubjectsByClass, setSelectedSubjectsByClass] = useState({});
 
   const [showPopup, setShowPopup] = useState(false);
   const [message, setMessage] = useState("");
   const [loader, setLoader] = useState(false)
 
-  // Fetch subjects when a class is selected
   useEffect(() => {
-    if (selectedClass) {
-      dispatch(getTeacherFreeClassSubjects(selectedClass));
-    }
-  }, [selectedClass, dispatch]);
+    let active = true;
+    Promise.all(selectedClasses.map(async (classId) => {
+      try {
+        const result = await axios.get(`${API_BASE_URL}/FreeSubjectList/${classId}`);
+        return [classId, Array.isArray(result.data) ? result.data : []];
+      } catch (error) {
+        return [classId, []];
+      }
+    })).then((entries) => {
+      if (active) setSubjectsByClass(Object.fromEntries(entries));
+    });
+    return () => { active = false; };
+  }, [selectedClasses]);
 
   const role = "Teacher"
 
   useEffect(() => {
     if (subjectDetails?._id) {
-      setSelectedSubjects([subjectDetails._id]);
+      setSelectedSubjectsByClass({});
     }
   }, [subjectDetails]);
   
-  // Use inline selections if available, otherwise use params-based subject details
-  let school, teachSubject, teachSclass;
-  if (selectedClass && selectedSubjects.length > 0 && subjectsList && subjectsList.length > 0) {
-    const selectedSubjectObj = subjectsList.find(s => s._id === selectedSubjects[0]);
-    school = selectedSubjectObj?.school || (subjectDetails && subjectDetails.school);
-    teachSubject = selectedSubjects[0];
-    teachSclass = selectedClass;
-  } else if (subjectDetails && subjectDetails._id) {
-    school = subjectDetails.school;
-    teachSubject = subjectDetails._id;
-    teachSclass = subjectDetails.sclassName && subjectDetails.sclassName._id;
-  }
+  const selectedSubjectIds = subjectID
+    ? (subjectDetails?._id ? [subjectDetails._id] : [])
+    : selectedClasses.flatMap((classId) => selectedSubjectsByClass[classId] || []);
+  const firstSelectedSubject = Object.values(subjectsByClass).flat().find((subject) => subject._id === selectedSubjectIds[0]);
+  const school = firstSelectedSubject?.school || subjectDetails?.school;
+  const teachSubject = selectedSubjectIds[0];
+  const teachSclass = subjectDetails?.sclassName?._id || selectedClasses[0];
+  const teachSclasses = subjectID ? [teachSclass].filter(Boolean) : selectedClasses;
 
   const schoolValueForSubmission = school?._id || school?.id || school || schoolId;
-  const fields = { name, email, password, phone, salary: parseFloat(salary) || 0, bankName, bankAccount, accountHolderName, role, school: schoolValueForSubmission, teachSubject, teachSubjects: selectedSubjects || (teachSubject ? [teachSubject] : []), teachSclass }
-  const missingSelection = !teachSubject || !teachSclass || (selectedSubjects && selectedSubjects.length === 0 && !subjectID)
+  const fields = { name, email, password, phone, employeeId, salary: parseFloat(salary) || 0, bankName, bankAccount, accountHolderName, role, school: schoolValueForSubmission, teachSubject, teachSubjects: selectedSubjectIds, teachSclass, teachSclasses }
+  const missingSelection = !teachSubject || !teachSclass || selectedSubjectIds.length === 0
 
   const submitHandler = (event) => {
     event.preventDefault()
@@ -115,45 +124,41 @@ const AddTeacher = () => {
           <span className="registerTitle">Add Teacher</span>
           <br />
 
-          {/* Class Dropdown */}
-          <label>Select Class</label>
-          <select
-            className="registerInput"
-            value={selectedClass}
-            onChange={(e) => {
-              setSelectedClass(e.target.value);
-              setSelectedSubjects([]); // reset subjects when class changes
-            }}
-            required
-          >
-            <option value="">-- Choose a Class --</option>
-            {Array.isArray(sclassesList) && sclassesList.length > 0 && sclassesList.map((sclass) => (
-              <option key={sclass._id} value={sclass._id}>
-                {sclass.sclassName}
-              </option>
-            ))}
-          </select>
-
-          {/* Subject Multi-select - only show if class is selected */}
-          {selectedClass && (
+          {!subjectID && (
             <>
-              <label>Select Subjects (You can choose more than one)</label>
+              <label>Select Classes</label>
               <select
                 className="registerInput"
                 multiple
-                value={selectedSubjects}
-                onChange={(e) => {
-                  const selected = Array.from(e.target.selectedOptions, option => option.value);
-                  setSelectedSubjects(selected);
-                }}
+                value={selectedClasses}
+                onChange={(event) => setSelectedClasses(Array.from(event.target.selectedOptions, (option) => option.value))}
                 required
               >
-                {Array.isArray(subjectsList) && subjectsList.length > 0 && subjectsList.map((subject) => (
-                  <option key={subject._id} value={subject._id}>
-                    {subject.subName}
-                  </option>
+                {Array.isArray(sclassesList) && sclassesList.map((sclass) => (
+                  <option key={sclass._id} value={sclass._id}>{sclass.sclassName}</option>
                 ))}
               </select>
+              {selectedClasses.map((classId) => {
+                const classItem = sclassesList.find((item) => item._id === classId);
+                return (
+                  <React.Fragment key={classId}>
+                    <label>Subjects for {classItem?.sclassName || 'selected class'}</label>
+                    <select
+                      className="registerInput"
+                      multiple
+                      value={selectedSubjectsByClass[classId] || []}
+                      onChange={(event) => {
+                        const selected = Array.from(event.target.selectedOptions, (option) => option.value);
+                        setSelectedSubjectsByClass((current) => ({ ...current, [classId]: selected }));
+                      }}
+                    >
+                      {(subjectsByClass[classId] || []).map((subject) => (
+                        <option key={subject._id} value={subject._id}>{subject.subName}</option>
+                      ))}
+                    </select>
+                  </React.Fragment>
+                );
+              })}
             </>
           )}
 
@@ -200,6 +205,15 @@ const AddTeacher = () => {
             onChange={(event) => setPassword(event.target.value)}
             autoComplete="new-password"
             required
+          />
+
+          <label>Staff Number (Optional)</label>
+          <input
+            className="registerInput"
+            type="text"
+            placeholder="Enter teacher staff number..."
+            value={employeeId}
+            onChange={(event) => setEmployeeId(event.target.value)}
           />
 
           <label>Phone (Optional)</label>

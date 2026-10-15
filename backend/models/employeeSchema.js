@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { createSearchTokens } = require('../utils/searchTokens');
 
 const employeeSchema = new mongoose.Schema({
     school: {
@@ -18,6 +19,7 @@ const employeeSchema = new mongoose.Schema({
         required: [true, 'Last name is required'],
         trim: true,
     },
+    searchTokens: { type: [String], default: [], select: false },
     email: {
         type: String,
         required: [true, 'Email is required'],
@@ -63,6 +65,7 @@ const employeeSchema = new mongoose.Schema({
         unique: true,
         required: true,
     },
+    employeeIdSearchTokens: { type: [String], default: [], select: false },
     biometricId: {
         type: String,
         trim: true,
@@ -411,7 +414,15 @@ const employeeSchema = new mongoose.Schema({
 });
 
 // Compound index for unique email per school
+employeeSchema.pre('validate', function setEmployeeSearchTokens(next) {
+    this.searchTokens = createSearchTokens(this.firstName, this.lastName, `${this.firstName || ''} ${this.lastName || ''}`);
+    this.employeeIdSearchTokens = createSearchTokens(this.employeeId);
+    next();
+});
+
 employeeSchema.index({ school: 1, email: 1 }, { unique: true });
+employeeSchema.index({ school: 1, searchTokens: 1 });
+employeeSchema.index({ school: 1, employeeIdSearchTokens: 1 });
 employeeSchema.index({ school: 1, employeeId: 1 }, { unique: true });
 
 module.exports = mongoose.model('employee', employeeSchema);

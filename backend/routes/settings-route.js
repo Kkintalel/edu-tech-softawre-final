@@ -1,4 +1,5 @@
 const router = require('express').Router();
+const { verifyAdmin, verifyFinanceWriter } = require('../middleware/superadminAuth');
 const {
     // System Settings
     getSystemSettings,
@@ -34,7 +35,7 @@ router.get('/School/:schoolId/SystemSettings', getSystemSettings);
 router.put('/School/:schoolId/SystemSettings', updateSystemSettings);
 router.get('/Settings/School/:schoolId/SystemSettings', getSystemSettings);
 router.put('/Settings/School/:schoolId/SystemSettings', updateSystemSettings);
-router.post('/Settings/School/:schoolId/SupplierPayment', paySupplier);
+router.post('/Settings/School/:schoolId/SupplierPayment', verifyAdmin, verifyFinanceWriter, paySupplier);
 router.get('/Settings/School/:schoolId/FinanceReport', getFinanceReport);
 
 // ==================== SECURITY SETTINGS ====================

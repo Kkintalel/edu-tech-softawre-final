@@ -16,6 +16,7 @@ import StudentHomePage from './StudentHomePage';
 import StudentProfile from './StudentProfile';
 import StudentSubjects from './StudentSubjects';
 import StudentTimetable from './StudentTimetable';
+import StudentAssignments from './StudentAssignments';
 import ViewStdAttendance from './ViewStdAttendance';
 import StudentComplain from './StudentComplain';
 import Logout from '../Logout'
@@ -79,7 +80,7 @@ const StudentDashboard = () => {
 
                         <Route path="subjects" element={<StudentSubjects />} />
                         <Route path="timetable" element={<StudentTimetable />} />
-                        <Route path="assignments" element={require('./StudentAssignments').default ? require('./StudentAssignments').default : null} />
+                        <Route path="assignments" element={<StudentAssignments />} />
                         <Route path="attendance" element={<ViewStdAttendance />} />
                         <Route path="learning-portal" element={<StudentLearningPortal />} />
                         <Route path="complain" element={<StudentComplain />} />

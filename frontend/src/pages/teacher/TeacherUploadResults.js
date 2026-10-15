@@ -22,6 +22,8 @@ import {
 import axios from 'axios';
 import { getClassStudents } from '../../redux/sclassRelated/sclassHandle';
 import { calculateGrade, getGradeColor, GRADING_SYSTEMS } from '../../utils/gradingSystem';
+import { useTeacherClass } from './TeacherClassContext';
+import { useAssignedTeaching } from './useAssignedTeaching';
 
 const API_BASE_URL = process.env.REACT_APP_BASE_URL || 'http://localhost:5000';
 
@@ -30,15 +32,19 @@ const TeacherUploadResults = () => {
     const navigate = useNavigate();
     const { sclassStudents, loading } = useSelector((state) => state.sclass);
     const { currentUser } = useSelector((state) => state.user);
-    const classID = currentUser.teachSclass?._id;
-    const subjectID = currentUser.teachSubject?._id;
-    const subjectName = currentUser.teachSubject?.subName;
+    const { selectedClassId } = useTeacherClass();
+    const { classes, classId, setClassId, subjects, subjectId, setSubjectId } = useAssignedTeaching(currentUser, selectedClassId);
+    const classID = classId || selectedClassId || currentUser.teachSclass?._id;
+    const subjectID = subjectId || currentUser.teachSubject?._id;
+    const subjectName = subjects.find((item) => String(item._id || item.id) === String(subjectId))?.subName || currentUser.teachSubject?.subName;
 
     const [marks, setMarks] = useState({ CAT: {}, END_TERM: {} });
     const [submitting, setSubmitting] = useState(false);
     const [success, setSuccess] = useState('');
     const [error, setError] = useState('');
     const [gradingSystem, setGradingSystem] = useState('achievement');
+    const [term, setTerm] = useState('Term 1');
+    const [academicYear, setAcademicYear] = useState(String(new Date().getFullYear()));
 
     useEffect(() => {
         const schoolId = currentUser?.school?._id || currentUser?.school;
@@ -90,6 +96,8 @@ const TeacherUploadResults = () => {
                 subName: subjectID,
                 marksObtained: marksValue,
                 examType,
+                term,
+                academicYear,
             };
 
             if (gradeInfo) {
@@ -166,6 +174,8 @@ const TeacherUploadResults = () => {
                     subName: subjectID,
                     marksObtained: marksValue,
                     examType,
+                    term,
+                    academicYear,
                 };
 
                 if (gradeInfo) {
@@ -211,11 +221,11 @@ const TeacherUploadResults = () => {
         }
     };
 
-    if (!classID || !subjectID) {
+    if (!classID) {
         return (
             <Box sx={{ p: 4 }}>
                 <Typography variant="h5" color="error">
-                    Teacher class or subject information is missing
+                    Teacher class information is missing
                 </Typography>
             </Box>
         );
@@ -226,8 +236,17 @@ const TeacherUploadResults = () => {
             <Typography variant="h4" gutterBottom>
                 Upload Exam Results
             </Typography>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 2 }}>
+                <TextField select label="Assigned class" value={classId} onChange={(event) => setClassId(event.target.value)} sx={{ minWidth: 220 }}>
+                    {classes.map((item) => <MenuItem key={item.id} value={item.id}>{item.name}</MenuItem>)}
+                </TextField>
+                <TextField select label="Assigned subject" value={subjectId} onChange={(event) => setSubjectId(event.target.value)} sx={{ minWidth: 220 }} disabled={!subjects.length}>
+                    {subjects.map((item) => <MenuItem key={item._id || item.id} value={item._id || item.id}>{item.subName}</MenuItem>)}
+                </TextField>
+            </Stack>
+            {!subjects.length && <Alert severity="warning" sx={{ mb: 2 }}>No subjects are assigned to this class. Ask an administrator to assign your subject before uploading results.</Alert>}
             <Typography variant="subtitle1" color="textSecondary" gutterBottom>
-                Subject: <strong>{subjectName}</strong> | Class: <strong>{currentUser.teachSclass?.sclassName}</strong>
+                Subject: <strong>{subjectName}</strong> | Class: <strong>{classes.find((item) => item.id === String(classId))?.name || currentUser.teachSclass?.sclassName}</strong>
             </Typography>
             <TextField
                 select
@@ -238,6 +257,28 @@ const TeacherUploadResults = () => {
             >
                 {Object.entries(GRADING_SYSTEMS).map(([type, system]) => (
                     <MenuItem key={type} value={type}>{system.label}</MenuItem>
+                ))}
+            </TextField>
+            <TextField
+                select
+                label="Academic Year"
+                value={academicYear}
+                onChange={(event) => setAcademicYear(event.target.value)}
+                sx={{ mb: 2, ml: { sm: 2 }, minWidth: 150 }}
+            >
+                {Array.from({ length: 8 }, (_, index) => new Date().getFullYear() - index).map((year) => (
+                    <MenuItem key={year} value={String(year)}>{year}</MenuItem>
+                ))}
+            </TextField>
+            <TextField
+                select
+                label="Term"
+                value={term}
+                onChange={(event) => setTerm(event.target.value)}
+                sx={{ mb: 2, ml: { sm: 2 }, minWidth: 150 }}
+            >
+                {['Term 1', 'Term 2', 'Term 3'].map((termOption) => (
+                    <MenuItem key={termOption} value={termOption}>{termOption}</MenuItem>
                 ))}
             </TextField>
 
@@ -313,7 +354,7 @@ const TeacherUploadResults = () => {
                                                                     size="small"
                                                                     color="primary"
                                                                     onClick={() => handleSubmit(student._id, examType.key)}
-                                                                    disabled={submitting || studentMarks === undefined || studentMarks === ''}
+                                                                    disabled={!subjectID || submitting || studentMarks === undefined || studentMarks === ''}
                                                                 >
                                                                     Upload
                                                                 </Button>
@@ -338,7 +379,7 @@ const TeacherUploadResults = () => {
                                             variant="contained"
                                             color="success"
                                             onClick={() => handleSubmitAll(examType.key)}
-                                            disabled={submitting || !hasMarks}
+                                            disabled={!subjectID || submitting || !hasMarks}
                                         >
                                             {submitting ? <CircularProgress size={24} color="inherit" /> : `Upload All ${examType.label}`}
                                         </Button>

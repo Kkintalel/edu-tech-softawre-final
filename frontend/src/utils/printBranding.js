@@ -25,14 +25,17 @@ export const resolveSchoolAssetUrl = (url = '') => {
 };
 
 export const getSchoolBranding = (user, school = null) => {
-    const branding = user?.settings?.branding || {};
-    const profile = user?.settings?.schoolProfile || {};
+    const settings = user?.schoolSettings || user?.settings || {};
+    const branding = settings.branding || {};
+    const profile = settings.schoolProfile || {};
     const schoolData = school || user?.school || {};
     return {
         name: normalizeText(branding.schoolName || schoolData.schoolName || schoolData.name || user?.schoolName || 'School'),
         tagline: normalizeText(branding.schoolTagline || schoolData.schoolTagline || user?.schoolTagline || ''),
         logo: resolveSchoolAssetUrl(branding.schoolLogo || schoolData.schoolLogo || schoolData.logo || user?.schoolLogo || ''),
-        address: normalizeText(profile.address || schoolData.address || schoolData.schoolAddress || user?.schoolAddress || ''),
+        postalAddress: normalizeText(profile.postalAddress || schoolData.postalAddress || ''),
+        physicalAddress: normalizeText(profile.physicalAddress || profile.address || schoolData.physicalAddress || schoolData.address || schoolData.schoolAddress || user?.schoolAddress || ''),
+        address: normalizeText([profile.physicalAddress || profile.address, profile.postalAddress].filter(Boolean).join(' · ') || schoolData.address || schoolData.schoolAddress || user?.schoolAddress || ''),
         phone: normalizeText(profile.phone || schoolData.phone || user?.schoolPhone || user?.phone || ''),
         email: normalizeText(profile.email || schoolData.email || user?.schoolEmail || user?.email || ''),
         website: normalizeText(profile.website || schoolData.website || user?.schoolWebsite || user?.website || ''),
@@ -46,12 +49,47 @@ export const buildPrintBrandingHtml = (user, school = null) => {
             ${branding.logo ? `<img src="${escapeHtml(branding.logo)}" alt="${escapeHtml(branding.name)} logo" />` : ''}
             <h1>${escapeHtml(branding.name)}</h1>
             ${branding.tagline ? `<p>${escapeHtml(branding.tagline)}</p>` : ''}
-            ${branding.address ? `<p>${escapeHtml(branding.address)}</p>` : ''}
+            ${branding.physicalAddress ? `<p>${escapeHtml(branding.physicalAddress)}</p>` : ''}
+            ${branding.postalAddress ? `<p>${escapeHtml(branding.postalAddress)}</p>` : (!branding.physicalAddress && branding.address ? `<p>${escapeHtml(branding.address)}</p>` : '')}
             ${branding.phone ? `<p>Phone: ${escapeHtml(branding.phone)}</p>` : ''}
             ${branding.email ? `<p>Email: ${escapeHtml(branding.email)}</p>` : ''}
             ${branding.website ? `<p>Website: ${escapeHtml(branding.website)}</p>` : ''}
         </div>
     `;
+};
+
+const imageUrlToDataUrl = async (url) => {
+    if (!url) return '';
+    const response = await fetch(url);
+    if (!response.ok) throw new Error('School logo could not be loaded');
+    const blob = await response.blob();
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+    });
+};
+
+export const addSchoolBrandingToPdf = async (document, user, school = null) => {
+    const branding = getSchoolBranding(user, school);
+    let y = 16;
+    let textX = 14;
+    if (branding.logo) {
+        try {
+            const image = await imageUrlToDataUrl(branding.logo);
+            document.addImage(image, image.startsWith('data:image/jpeg') ? 'JPEG' : 'PNG', 14, 8, 22, 18);
+            textX = 40;
+        } catch {
+            textX = 14;
+        }
+    }
+    document.setFontSize(16);
+    document.text(branding.name || 'School', textX, y);
+    document.setFontSize(8);
+    const details = [branding.tagline, branding.physicalAddress, branding.postalAddress, branding.phone, branding.email, branding.website].filter(Boolean);
+    details.forEach((detail, index) => document.text(String(detail), textX, y + 5 + index * 4, { maxWidth: 175 }));
+    return Math.max(34, y + 9 + details.length * 4);
 };
 
 export const printBrandingStyles = `

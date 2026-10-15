@@ -99,7 +99,8 @@ export const resetTeacherPasswordByAdmin = (teacherId, newPassword) => async (di
         const headers = { 'Content-Type': 'application/json' };
         if (adminId) headers['x-admin-id'] = adminId;
 
-        const result = await axios.post(`${process.env.REACT_APP_BASE_URL}/Teacher/${teacherId}/ResetByAdmin`, { newPassword }, { headers });
+        const API_BASE_URL = process.env.REACT_APP_BASE_URL || 'http://localhost:5000';
+        const result = await axios.post(`${API_BASE_URL}/Teacher/${teacherId}/ResetByAdmin`, { newPassword }, { headers });
         dispatch(doneSuccess(result.data));
         return result.data;
     } catch (error) {

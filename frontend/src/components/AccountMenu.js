@@ -3,6 +3,7 @@ import { Box, Avatar, Menu, MenuItem, ListItemIcon, Divider, IconButton, Tooltip
 import { Settings, Logout } from '@mui/icons-material';
 import { Link } from 'react-router-dom';
 import { useSelector } from 'react-redux';
+import GlobalSearch from './GlobalSearch';
 
 const AccountMenu = () => {
     const [anchorEl, setAnchorEl] = useState(null);
@@ -23,6 +24,7 @@ const AccountMenu = () => {
     return (
         <>
             <Box sx={{ display: 'flex', alignItems: 'center', textAlign: 'center' }}>
+                <GlobalSearch currentUser={currentUser} currentRole={currentRole} />
                 <Tooltip title="Account settings">
                     <IconButton
                         onClick={handleClick}

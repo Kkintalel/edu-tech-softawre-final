@@ -16,6 +16,13 @@ const GeneralSettings = () => {
       secondaryColor: '#424242',
       accentColor: '#FF9800'
     },
+    schoolProfile: {
+      postalAddress: '',
+      physicalAddress: '',
+      phone: '',
+      email: '',
+      website: '',
+    },
     receiptSettings: {
       enableReceipts: true,
       includeLogoInReceipt: true,
@@ -33,6 +40,7 @@ const GeneralSettings = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
+  const [logoFile, setLogoFile] = useState(null);
 
   useEffect(() => {
     fetchSettings();
@@ -52,6 +60,10 @@ const GeneralSettings = () => {
           branding: {
             ...prev.branding,
             ...(response.data.settings.branding || {})
+          },
+          schoolProfile: {
+            ...prev.schoolProfile,
+            ...(response.data.settings.schoolProfile || {})
           },
           receiptSettings: {
             ...prev.receiptSettings,
@@ -105,6 +117,37 @@ const GeneralSettings = () => {
         [field]: value
       }
     }));
+  };
+
+  const handleSchoolProfileChange = (field, value) => {
+    setSettings((prev) => ({
+      ...prev,
+      schoolProfile: { ...prev.schoolProfile, [field]: value },
+    }));
+  };
+
+  const handleLogoUpload = async () => {
+    if (!logoFile) return;
+    setSaving(true);
+    setMessage('');
+    try {
+      const API_BASE_URL = process.env.REACT_APP_BASE_URL || 'http://localhost:5000';
+      const schoolId = currentUser?.school?._id || currentUser?.school || currentUser?.schoolId;
+      const formData = new FormData();
+      formData.append('logo', logoFile);
+      const response = await axios.post(`${API_BASE_URL}/School/${schoolId}/Branding/UploadLogo`, formData, {
+        headers: { 'x-admin-id': currentUser?._id },
+      });
+      const branding = { ...settings.branding, schoolLogo: response.data.logoUrl };
+      setSettings((previous) => ({ ...previous, branding }));
+      dispatch(authSuccess({ ...currentUser, settings: { ...currentUser?.settings, branding }, schoolLogo: response.data.logoUrl }));
+      setLogoFile(null);
+      setMessage('School logo uploaded successfully');
+    } catch (error) {
+      setMessage(error.response?.data?.message || 'Unable to upload school logo');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleSave = async () => {
@@ -195,6 +238,35 @@ const GeneralSettings = () => {
               onChange={(e) => handleBrandingChange('schoolLogo', e.target.value)}
               helperText="Used in receipts and school branding"
             />
+          </Grid>
+
+          <Grid item xs={12} sm={6}>
+            <Button component="label" variant="outlined" fullWidth>
+              {logoFile?.name || 'Choose school logo'}
+              <input hidden type="file" accept="image/png,image/jpeg,image/gif" onChange={(event) => setLogoFile(event.target.files?.[0] || null)} />
+            </Button>
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <Button variant="outlined" onClick={handleLogoUpload} disabled={!logoFile || saving} fullWidth>Upload logo</Button>
+          </Grid>
+
+          <Grid item xs={12}>
+            <Typography variant="h6" sx={{ mb: 2, mt: 2 }}>School Contact Details</Typography>
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <TextField fullWidth label="Postal Address" value={settings.schoolProfile?.postalAddress || ''} onChange={(event) => handleSchoolProfileChange('postalAddress', event.target.value)} />
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <TextField fullWidth label="Physical Address" value={settings.schoolProfile?.physicalAddress || ''} onChange={(event) => handleSchoolProfileChange('physicalAddress', event.target.value)} />
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <TextField fullWidth label="School Phone" type="tel" value={settings.schoolProfile?.phone || ''} onChange={(event) => handleSchoolProfileChange('phone', event.target.value)} />
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <TextField fullWidth label="School Email" type="email" value={settings.schoolProfile?.email || ''} onChange={(event) => handleSchoolProfileChange('email', event.target.value)} />
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <TextField fullWidth label="School Website" type="url" value={settings.schoolProfile?.website || ''} onChange={(event) => handleSchoolProfileChange('website', event.target.value)} />
           </Grid>
           
           <Grid item xs={12} sm={6}>

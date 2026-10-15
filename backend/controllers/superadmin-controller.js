@@ -270,31 +270,47 @@ const deleteSchool = async (req, res) => {
         }
 
         const school = await School.findById(schoolId) || await School.findOne({ schoolAdmin: schoolId });
-        if (!school) {
+        const pendingAdmin = school ? null : await Admin.findOne({ _id: schoolId, role: 'Admin', approved: false });
+        if (!school && !pendingAdmin) {
             return res.status(404).send({ message: 'School not found' });
         }
 
-        const expectedConfirmation = `DELETE ${school.schoolName}`;
+        const schoolName = school?.schoolName || pendingAdmin.schoolName || pendingAdmin.name;
+        const expectedConfirmation = `DELETE ${schoolName}`;
         if (confirmation !== expectedConfirmation) {
             return res.status(400).send({
                 message: `Confirmation required. Type '${expectedConfirmation}' to permanently delete this school and all school data.`
             });
         }
 
-        const schoolIdValue = school._id;
-        const schoolAdminIds = await Admin.find({
-            $or: [{ _id: school.schoolAdmin }, { school: schoolIdValue }],
-            role: { $ne: 'SuperAdmin' }
-        }).distinct('_id');
+        const schoolIdValue = school?._id || pendingAdmin._id;
+        const schoolAdminIds = school
+            ? await Admin.find({
+                $or: [{ _id: school.schoolAdmin }, { school: schoolIdValue }, { school: school.schoolAdmin }],
+                role: { $ne: 'SuperAdmin' }
+            }).distinct('_id')
+            : [pendingAdmin._id];
+        const schoolScopeIds = [...new Set([schoolIdValue, school?.schoolAdmin, ...schoolAdminIds].filter(Boolean).map(String))];
 
         const cascadeModels = [
             [require('../models/assignmentSchema.js'), 'school'],
+            [require('../models/accountingSchema.js').Account, 'schoolId'],
+            [require('../models/accountingSchema.js').AccountingPeriod, 'schoolId'],
+            [require('../models/accountingSchema.js').JournalEntry, 'schoolId'],
+            [require('../models/accountingSchema.js').GeneralLedger, 'schoolId'],
+            [require('../models/accountingSchema.js').Budget, 'schoolId'],
+            [require('../models/accountingSchema.js').AuditLog, 'schoolId'],
+            [require('../models/analyticsReportHistory.js'), 'school'],
+            [require('../models/analyticsTarget.js'), 'school'],
+            [require('../models/scheduledAnalyticsReport.js'), 'school'],
             [require('../models/attendanceSchema.js'), 'schoolId'],
             [require('../models/backupSchema.js'), 'school'],
             [require('../models/backupLogsSchema.js'), 'school'],
             [require('../models/complainSchema.js'), 'school'],
             [require('../models/employeeSchema.js'), 'school'],
             [require('../models/expenseClaimSchema.js'), 'schoolId'],
+            [require('../models/financeCommitmentSchema.js').FeePledge, 'school'],
+            [require('../models/financeCommitmentSchema.js').ProcurementOrder, 'school'],
             [require('../models/hrAccountantCommunicationSchema.js'), 'school'],
             [require('../models/learningMaterialSchema.js'), 'school'],
             [require('../models/leaveSchema.js'), 'schoolId'],
@@ -320,7 +336,7 @@ const deleteSchool = async (req, res) => {
         const deletedRecords = {};
         for (const [Model, field] of cascadeModels) {
             const modelName = Model.modelName;
-            const result = await Model.deleteMany({ [field]: schoolIdValue });
+            const result = await Model.deleteMany({ [field]: { $in: schoolScopeIds } });
             deletedRecords[modelName] = result.deletedCount || 0;
         }
 
@@ -328,13 +344,13 @@ const deleteSchool = async (req, res) => {
             ? await Admin.deleteMany({ _id: { $in: schoolAdminIds } })
             : { deletedCount: 0 };
         deletedRecords.Admin = adminResult.deletedCount || 0;
-        const schoolResult = await School.deleteOne({ _id: schoolIdValue });
+        const schoolResult = school ? await School.deleteOne({ _id: schoolIdValue }) : { deletedCount: 0 };
         deletedRecords.School = schoolResult.deletedCount || 0;
 
         // Log action
-        await logSystemAction('DELETE_SCHOOL', superAdminId, 'SuperAdmin', schoolIdValue, 'School', schoolIdValue, school.schoolName, `School and related data deleted: ${school.schoolName}`, { deleted: school, deletedRecords }, 'Success');
+        await logSystemAction('DELETE_SCHOOL', superAdminId, 'SuperAdmin', schoolIdValue, 'School', schoolIdValue, schoolName, `School and related data deleted: ${schoolName}`, { deleted: school || pendingAdmin, deletedRecords }, 'Success');
 
-        res.status(200).json({ message: 'School and all related school data deleted successfully', deletedRecords });
+        res.status(200).json({ message: `School ${schoolName} and all related school data deleted successfully`, deletedRecords });
     } catch (err) {
         res.status(500).send({ message: 'Error deleting school', error: err.message });
     }

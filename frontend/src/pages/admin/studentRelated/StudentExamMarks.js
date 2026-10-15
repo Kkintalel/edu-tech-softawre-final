@@ -29,6 +29,7 @@ const StudentExamMarks = ({ situation }) => {
     const [chosenSubName, setChosenSubName] = useState("");
     const [examType, setExamType] = useState('CAT');
     const [term, setTerm] = useState('Term 1');
+    const [academicYear, setAcademicYear] = useState(String(new Date().getFullYear()));
     const [marksObtained, setMarksObtained] = useState("");
     const [gradeInfo, setGradeInfo] = useState(null);
     const [gradingSystem, setGradingSystem] = useState('achievement');
@@ -132,7 +133,7 @@ const StudentExamMarks = ({ situation }) => {
 
         setLoader(true)
         
-        const fields = { subName: chosenSubName, examType, term, marksObtained: numericMarks, gradingSystem, changeReason };
+        const fields = { subName: chosenSubName, examType, term, academicYear, marksObtained: numericMarks, gradingSystem, changeReason };
         if (gradeInfo) {
             fields.grade = gradeInfo.grade;
             fields.level = gradeInfo.level;
@@ -263,6 +264,16 @@ const StudentExamMarks = ({ situation }) => {
                                             <MenuItem value="Term 3">Term 3</MenuItem>
                                         </Select>
                                     </FormControl>
+                                    <TextField
+                                        select
+                                        label="Academic Year"
+                                        value={academicYear}
+                                        onChange={(event) => setAcademicYear(event.target.value)}
+                                    >
+                                        {Array.from({ length: 8 }, (_, index) => new Date().getFullYear() - index).map((year) => (
+                                            <MenuItem key={year} value={String(year)}>{year}</MenuItem>
+                                        ))}
+                                    </TextField>
                                     <FormControl>
                                         <TextField type="number" label='Enter marks'
                                             value={marksObtained} required

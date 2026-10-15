@@ -13,10 +13,12 @@ import GradeIcon from '@mui/icons-material/Grade';
 import ScheduleIcon from '@mui/icons-material/CalendarToday';
 import VideoLibraryIcon from '@mui/icons-material/VideoLibrary';
 import QuizIcon from '@mui/icons-material/Quiz';
+import { useTeacherClass } from './TeacherClassContext';
 
 const TeacherSideBar = () => {
     const { currentUser } = useSelector((state) => state.user);
-    const sclassName = currentUser.teachSclass
+    const { selectedClass } = useTeacherClass();
+    const sclassName = selectedClass?.name || currentUser.teachSclass?.sclassName || 'Assigned class';
 
     const location = useLocation();
     return (
@@ -32,7 +34,7 @@ const TeacherSideBar = () => {
                     <ListItemIcon>
                         <ClassOutlinedIcon color={location.pathname.startsWith("/Teacher/class") ? 'primary' : 'inherit'} />
                     </ListItemIcon>
-                    <ListItemText primary={`Class ${sclassName.sclassName}`} />
+                    <ListItemText primary={sclassName.startsWith('Class ') ? sclassName : `Class ${sclassName}`} />
                 </ListItemButton>
                 <ListItemButton component={Link} to="/Teacher/timetable">
                     <ListItemIcon>
@@ -51,6 +53,12 @@ const TeacherSideBar = () => {
                         <AssignmentIcon color={location.pathname.startsWith("/Teacher/upload-assignment") ? 'primary' : 'inherit'} />
                     </ListItemIcon>
                     <ListItemText primary="Upload Assignment" />
+                </ListItemButton>
+                <ListItemButton component={Link} to="/Teacher/assignment-review">
+                    <ListItemIcon>
+                        <AssignmentIcon color={location.pathname.startsWith('/Teacher/assignment-review') ? 'primary' : 'inherit'} />
+                    </ListItemIcon>
+                    <ListItemText primary="Review Submissions" />
                 </ListItemButton>
                 <ListItemButton component={Link} to="/Teacher/upload-results">
                     <ListItemIcon>

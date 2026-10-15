@@ -1,7 +1,7 @@
 import React, { lazy, Suspense } from 'react'
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import { useSelector } from 'react-redux';
-const Homepage = lazy(() => import('./pages/Homepage'));
+const Homepage = lazy(() => import('./pages/EduTechnologiesHome'));
 const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'));
 const StudentDashboard = lazy(() => import('./pages/student/StudentDashboard'));
 const TeacherDashboard = lazy(() => import('./pages/teacher/TeacherDashboard'));
@@ -16,6 +16,7 @@ const PayFee = lazy(() => import('./pages/parent/PayFee'));
 const PaymentHistory = lazy(() => import('./pages/parent/PaymentHistory'));
 const AccountantDashboard = lazy(() => import('./pages/accountant/AccountantDashboard'));
 const HRDashboard = lazy(() => import('./pages/hr/HRDashboard'));
+const StaffLoginSelector = lazy(() => import('./pages/StaffLoginSelector'));
 const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage'));
 const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'));
 const TermsPage = lazy(() => import('./pages/TermsPage'));
@@ -32,24 +33,28 @@ const App = () => {
       <Suspense fallback={<div>Loading...</div>}>
         <Routes>
         <Route path="/" element={<Homepage />} />
+        <Route path="/admin" element={<ChooseUser visitor="normal" />} />
+        <Route path="/Admin" element={<ChooseUser visitor="normal" />} />
         <Route path="/choose" element={<ChooseUser visitor="normal" />} />
         <Route path="/chooseasguest" element={<ChooseUser visitor="guest" />} />
+        <Route path="/staff-login" element={<StaffLoginSelector />} />
+        <Route path="/internal-login" element={<StaffLoginSelector />} />
 
         <Route path="/Adminlogin" element={<LoginPage role="Admin" />} />
         <Route path="/Accountantlogin" element={<LoginPage role="Accountant" />} />
         <Route path="/HRlogin" element={<LoginPage role="HR" />} />
-        <Route path="/SuperAdminlogin" element={<Navigate to="/" replace />} />
+        <Route path="/SuperAdminlogin" element={<LoginPage role="SuperAdmin" />} />
         <Route path="/Studentlogin" element={<LoginPage role="Student" />} />
         <Route path="/Teacherlogin" element={<LoginPage role="Teacher" />} />
         <Route path="/Parent/login" element={<ParentLogin />} />
         
-        <Route path="/Admin/forgot-password" element={<Navigate to="/" replace />} />
+        <Route path="/Admin/forgot-password" element={<ForgotPasswordPage role="Admin" />} />
         <Route path="/SuperAdmin/forgot-password" element={<Navigate to="/" replace />} />
         <Route path="/Accountant/forgot-password" element={<ForgotPasswordPage role="Accountant" />} />
         <Route path="/HR/forgot-password" element={<ForgotPasswordPage role="HR" />} />
         <Route path="/Student/forgot-password" element={<ForgotPasswordPage role="Student" />} />
         <Route path="/Teacher/forgot-password" element={<ForgotPasswordPage role="Teacher" />} />
-        <Route path="/Admin/reset-password/:token" element={<Navigate to="/" replace />} />
+        <Route path="/Admin/reset-password/:token" element={<ResetPasswordPage role="Admin" />} />
         <Route path="/SuperAdmin/reset-password/:token" element={<Navigate to="/" replace />} />
         <Route path="/Accountant/reset-password/:token" element={<ResetPasswordPage role="Accountant" />} />
         <Route path="/HR/reset-password/:token" element={<ResetPasswordPage role="HR" />} />
@@ -75,7 +80,7 @@ const App = () => {
           element={
             currentRole === 'Admin' || currentRole === 'SuperAdmin'
               ? <AdminDashboard />
-              : <Navigate to="/" replace />
+              : <Navigate to="/Adminlogin" replace />
           }
         />
         <Route path="/Accountant/*" element={<AccountantDashboard />} />

@@ -22,6 +22,9 @@ const {
     getBackupStatistics,
 } = require('../utils/backupService');
 const { applyClassFeeToStudent, summarizeFinanceReport } = require('../utils/financeUtils');
+const { Account, AccountingPeriod } = require('../models/accountingSchema');
+const AccountingService = require('../services/accountingService');
+const { recordFeeAssessment, resolveAcademicPeriod } = require('../utils/academicPeriod');
 
 // Branding upload handler will be used to accept logo uploads
 const uploadSchoolLogo = async (req, res) => {
@@ -127,6 +130,8 @@ const applyFinanceSettingsToStudents = async (schoolId, financeSettings = {}) =>
 
     const appliedClasses = [];
     let updatedStudents = 0;
+    const effectiveAt = new Date();
+    const academicPeriod = await resolveAcademicPeriod(effectiveAt, schoolId);
 
     for (const classFee of classFees) {
         const classId = classFee?.classId;
@@ -138,9 +143,13 @@ const applyFinanceSettingsToStudents = async (schoolId, financeSettings = {}) =>
         const students = await Student.find({ school: schoolId, sclassName: classId });
         for (const student of students) {
             const updatedStudent = applyClassFeeToStudent(student.toObject ? student.toObject() : student, Number(classFee.feeAmount || 0));
+            if (Number(updatedStudent.totalFees) !== Number(student.totalFees || 0)) {
+                await recordFeeAssessment(student, updatedStudent.totalFees, effectiveAt, null, academicPeriod);
+            }
             await Student.findByIdAndUpdate(student._id, {
                 $set: {
                     totalFees: updatedStudent.totalFees,
+                    feeAssessments: student.feeAssessments,
                     amountPaid: updatedStudent.amountPaid,
                     balance: updatedStudent.balance,
                     paymentStatus: updatedStudent.paymentStatus,
@@ -282,6 +291,17 @@ const updateSystemSettings = async (req, res) => {
     }
 };
 
+const resolveProcurementAccountCode = (itemName = '') => {
+    const normalized = String(itemName).toLowerCase();
+
+    if (/(utility|electric|water|internet|phone|telecom|power)/.test(normalized)) return '5200';
+    if (/(maint|repair|service|clean|janitor|facility|furniture)/.test(normalized)) return '5300';
+    if (/(transport|fuel|travel|delivery|bus)/.test(normalized)) return '5400';
+    if (/(stationery|office|supplies|paper|printer|books|stock)/.test(normalized)) return '5100';
+    if (/(software|it|computer|server|network|communication)/.test(normalized)) return '5500';
+    return '5800';
+};
+
 const paySupplier = async (req, res) => {
     try {
         const adminId = req.get('x-admin-id');
@@ -312,6 +332,27 @@ const paySupplier = async (req, res) => {
             normalizedReference && entry.reference && entry.reference.trim() === normalizedReference
         );
         if (duplicatePayment) return res.status(409).json({ message: 'A supplier payment with this reference already exists' });
+
+        const openPeriod = await AccountingPeriod.findOne({ schoolId, status: 'open' }).sort({ startDate: -1 });
+        const expenseAccountCode = resolveProcurementAccountCode(item);
+        const expenseAccount = await Account.findOne({ schoolId, code: expenseAccountCode });
+        const cashAccount = await Account.findOne({ schoolId, code: '1000' });
+
+        if (expenseAccount && openPeriod) {
+            const projection = await AccountingService.getProjectedBudgetStatus({
+                schoolId,
+                periodId: openPeriod._id,
+                accountId: expenseAccount._id,
+                amount: numericAmount,
+            });
+
+            if (projection.status === 'over_budget') {
+                return res.status(400).json({
+                    message: 'Supplier payment blocked: projected spend exceeds the approved budget for this account.',
+                    budgetCheck: projection,
+                });
+            }
+        }
 
         const paymentDate = new Date();
         const payment = { supplier, item, amount: numericAmount, paymentMethod, mpesaNumber, bankAccount, reference: normalizedReference, note, status: 'Paid', paidBy: adminId, date: paymentDate };
@@ -360,6 +401,31 @@ const paySupplier = async (req, res) => {
         try {
             await school.save();
             await settings.save();
+            if (openPeriod && cashAccount && expenseAccount) {
+                await AccountingService.createJournalEntry({
+                    schoolId,
+                    periodId: openPeriod._id,
+                    description: `Supplier payment to ${supplier} for ${item}`,
+                    sourceModule: 'procurement',
+                    postedBy: adminId,
+                    lines: [
+                        {
+                            accountId: expenseAccount._id,
+                            debitAmount: numericAmount,
+                            creditAmount: 0,
+                            description: `Supplier settlement for ${item}`,
+                            referenceType: 'supplierInvoice',
+                        },
+                        {
+                            accountId: cashAccount._id,
+                            debitAmount: 0,
+                            creditAmount: numericAmount,
+                            description: `Cash paid to ${supplier}`,
+                            referenceType: 'supplierInvoice',
+                        },
+                    ],
+                });
+            }
         } catch (saveError) {
             if (schoolBefore) await School.findByIdAndUpdate(school._id, { $set: schoolBefore });
             if (settingsSnapshot) await Settings.findByIdAndUpdate(settings._id, { $set: settingsSnapshot });

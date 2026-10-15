@@ -15,8 +15,7 @@ const ParentLogin = () => {
     const navigate = useNavigate();
     const dispatch = useDispatch();
 
-    const [admissionNumber, setAdmissionNumber] = useState('');
-    const [parentEmail, setParentEmail] = useState('');
+    const [phone, setPhone] = useState('');
     const [password, setPassword] = useState('');
     const [toggle, setToggle] = useState(false);
     const [loader, setLoader] = useState(false);
@@ -27,8 +26,8 @@ const ParentLogin = () => {
         event.preventDefault();
         setError('');
 
-        if (!admissionNumber || !parentEmail || !password) {
-            setError('Parent email, password, and student admission number are required');
+        if (!phone || !password) {
+            setError('Phone number and the student admission number password are required');
             return;
         }
 
@@ -36,9 +35,7 @@ const ParentLogin = () => {
 
         try {
             const response = await axios.post(`${API_BASE_URL}/ParentLogin`, {
-                admissionNo: admissionNumber,
-                parentEmail,
-                guardianEmail: parentEmail,
+                phone,
                 password
             });
 
@@ -114,33 +111,18 @@ const ParentLogin = () => {
                             <TextField
                                 margin="normal"
                                 fullWidth
-                                id="admissionNumber"
-                                label="Student's Admission Number"
-                                name="admissionNumber"
-                                autoComplete="off"
-                                type="text"
+                                id="phone"
+                                label="Parent / Guardian Phone Number"
+                                name="phone"
+                                autoComplete="tel"
+                                type="tel"
                                 autoFocus
-                                value={admissionNumber}
+                                value={phone}
                                 onChange={(e) => {
-                                    setAdmissionNumber(e.target.value);
+                                    setPhone(e.target.value);
                                     handleInputChange(e);
                                 }}
-                                helperText="Example: JAMES-2026-0001"
-                            />
-                            <TextField
-                                margin="normal"
-                                required
-                                fullWidth
-                                id="email"
-                                label="Parent / Guardian Email Address"
-                                name="email"
-                                autoComplete="email"
-                                type="email"
-                                value={parentEmail}
-                                onChange={(e) => {
-                                    setParentEmail(e.target.value);
-                                    handleInputChange(e);
-                                }}
+                                helperText="Use the number saved on the student's record. Password is the student's admission number."
                             />
                             <TextField
                                 margin="normal"
@@ -178,7 +160,7 @@ const ParentLogin = () => {
 
                             <Box sx={{ mt: 3, textAlign: 'center' }}>
                                 <Typography variant="body2">
-                                    First time logging in? Use the same password as your child's student account.
+                                    Use your phone number and your child's admission number as the password.
                                 </Typography>
                             </Box>
                         </Box>

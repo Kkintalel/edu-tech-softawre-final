@@ -1,13 +1,16 @@
 import React, { useState } from 'react';
 import { useSelector } from 'react-redux';
 import { Box, Button, MenuItem, Paper, TextField, Typography, Alert } from '@mui/material';
+import { useAssignedTeaching } from './useAssignedTeaching';
 
 const API_BASE_URL = process.env.REACT_APP_BASE_URL || 'http://localhost:5000';
 
 const TeacherUploadMaterials = () => {
     const { currentUser } = useSelector((state) => state.user);
+    const { classes, classId, setClassId, subjects, subjectId, setSubjectId } = useAssignedTeaching(currentUser);
     const [title, setTitle] = useState('');
     const [description, setDescription] = useState('');
+    const [topic, setTopic] = useState('');
     const [type, setType] = useState('Note');
     const [fileUrl, setFileUrl] = useState('');
     const [file, setFile] = useState(null);
@@ -20,13 +23,12 @@ const TeacherUploadMaterials = () => {
 
         try {
             const schoolId = currentUser?.school?._id || currentUser?.school || '';
-            const classId = currentUser?.teachSclass?._id || currentUser?.teachSclass || '';
-            const subjectId = currentUser?.teachSubject?._id || currentUser?.teachSubject || '';
             const teacherId = currentUser?._id || '';
 
             const formData = new FormData();
             formData.append('title', materialData.title);
             formData.append('description', materialData.description);
+            formData.append('topic', materialData.topic || '');
             formData.append('type', materialData.type);
             formData.append('subject', subjectId);
             formData.append('subject_id', subjectId);
@@ -43,6 +45,7 @@ const TeacherUploadMaterials = () => {
                 method: 'POST',
                 headers: {
                     'x-admin-id': schoolId,
+                    ...(currentUser?.token ? { Authorization: `Bearer ${currentUser.token}` } : {}),
                 },
                 body: formData,
             });
@@ -52,6 +55,7 @@ const TeacherUploadMaterials = () => {
                 setMessage(materialData.successMessage || 'Learning material uploaded successfully.');
                 setTitle('');
                 setDescription('');
+                setTopic('');
                 setFileUrl('');
                 setFile(null);
                 return true;
@@ -69,7 +73,7 @@ const TeacherUploadMaterials = () => {
 
     const handleSubmit = async (event) => {
         event.preventDefault();
-        await submitMaterial({ title, description, type, fileUrl, file, successMessage: 'Learning material uploaded successfully.' });
+        await submitMaterial({ title, description, topic, type, fileUrl, file, successMessage: 'Learning material uploaded successfully.' });
     };
 
     const handleCreateTestMaterial = async () => {
@@ -87,8 +91,15 @@ const TeacherUploadMaterials = () => {
             <Paper sx={{ p: 3 }}>
                 <Typography variant="h6" gutterBottom>Upload Learning Material</Typography>
                 <form onSubmit={handleSubmit}>
+                    <TextField select label="Assigned class" fullWidth value={classId} onChange={(event) => setClassId(event.target.value)} required sx={{ mb: 2 }}>
+                        {classes.map((item) => <MenuItem key={item.id} value={item.id}>{item.name}</MenuItem>)}
+                    </TextField>
+                    <TextField select label="Assigned subject" fullWidth value={subjectId} onChange={(event) => setSubjectId(event.target.value)} required sx={{ mb: 2 }}>
+                        {subjects.map((item) => <MenuItem key={item._id || item.id} value={item._id || item.id}>{item.subName}</MenuItem>)}
+                    </TextField>
                     <TextField label="Title" fullWidth value={title} onChange={(e) => setTitle(e.target.value)} required sx={{ mb: 2 }} />
                     <TextField label="Description" fullWidth multiline rows={3} value={description} onChange={(e) => setDescription(e.target.value)} sx={{ mb: 2 }} />
+                    <TextField label="Topic (optional)" fullWidth value={topic} onChange={(e) => setTopic(e.target.value)} sx={{ mb: 2 }} />
                     <TextField
                         select
                         label="Type"

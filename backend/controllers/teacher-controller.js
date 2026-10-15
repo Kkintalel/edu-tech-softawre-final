@@ -8,8 +8,10 @@ const { sendResetPasswordLink, sendPasswordResetEmail, sendEmail } = require('..
 const { createBankTransfer } = require('../services/bankService.js');
 const { sendSMS } = require('../services/smsService.js');
 const { logAuditAction } = require('../utils/auditLogger');
+const { getFrontendBaseUrl } = require('../utils/frontendUrl');
 const { validateTeacherInput, validateTeacherUpdateInput, validatePassword } = require('../utils/validation.js');
-const { getAdminIdFromReq, verifySchoolId, verifyEntityBelongsToAdminSchool, enforceSubscriptionStatus } = require('../middleware/schoolAccess.js');
+const { getAdminIdFromReq, getRequestUser, verifySchoolId, verifyEntityBelongsToAdminSchool, enforceSubscriptionStatus } = require('../middleware/schoolAccess.js');
+const { issueAdminToken } = require('../utils/authToken.js');
 
 // Helper function to check if admin has permission to edit employee/salary details
 const getAdminRole = async (adminId) => {
@@ -71,7 +73,7 @@ const syncTeacherSubjectAssignments = async (teacherId, subjectIds) => {
 };
 
 const teacherRegister = async (req, res) => {
-    const { name, email, password, phone, role, teachSubject, teachSubjects, teachSclass, salary, bankName, bankAccount, accountHolderName, school: bodySchool } = req.body;
+    const { name, email, password, phone, employeeId, role, teachSubject, teachSubjects, teachSclass, teachSclasses, salary, bankName, bankAccount, accountHolderName, school: bodySchool } = req.body;
     let school = bodySchool || getAdminIdFromReq(req);
     
     try {
@@ -107,11 +109,13 @@ const teacherRegister = async (req, res) => {
             email,
             password: hashedPass,
             phone: phone || '',
+            employeeId: employeeId || '',
             role,
             school,
             teachSubject: primarySubjectId,
             teachSubjects: normalizedSubjectIds,
             teachSclass,
+            teachSclasses: Array.isArray(teachSclasses) && teachSclasses.length > 0 ? teachSclasses : [teachSclass],
             salary: salary !== undefined ? Number(salary) : 0,
             bankName: bankName || '',
             bankAccount: bankAccount || '',
@@ -195,15 +199,22 @@ const teacherLogIn = async (req, res) => {
                     delete safeTeacher.password;
                     return res.send(safeTeacher);
                 }
-                teacher = await teacher.populate("teachSubject", "subName sessions")
-                teacher = await teacher.populate("teachSubjects", "subName sessions")
+                teacher = await teacher.populate({ path: 'teachSubject', select: 'subName sessions sclassName', populate: { path: 'sclassName', select: 'sclassName' } });
+                teacher = await teacher.populate({ path: 'teachSubjects', select: 'subName sessions sclassName', populate: { path: 'sclassName', select: 'sclassName' } });
                 teacher = await teacher.populate("school", "schoolName")
                 teacher = await teacher.populate("teachSclass", "sclassName")
+                teacher = await teacher.populate("teachSclasses", "sclassName")
                 if (!teacher.teachSubject && Array.isArray(teacher.teachSubjects) && teacher.teachSubjects.length > 0) {
                     teacher.teachSubject = teacher.teachSubjects[0];
                 }
-                teacher.password = undefined;
-                res.send(teacher);
+                const safeTeacher = teacher.toObject({ getters: true });
+                delete safeTeacher.password;
+                const schoolAdminId = safeTeacher.school?._id || safeTeacher.school;
+                const schoolRecord = await School.findOne({ $or: [{ _id: schoolAdminId }, { schoolAdmin: schoolAdminId }] }).select('_id');
+                const BrandingSettings = require('../models/settingsSchema.js');
+                safeTeacher.schoolSettings = await BrandingSettings.findOne({ school: schoolRecord?._id || schoolAdminId }).select('branding schoolProfile receiptSettings');
+                safeTeacher.token = issueAdminToken(safeTeacher);
+                res.send(safeTeacher);
             } else {
                 res.status(401).send({ message: "Invalid password", role: "Teacher" });
             }
@@ -239,6 +250,7 @@ const getTeachers = async (req, res) => {
             .populate("teachSubject", "subName")
             .populate("teachSubjects", "subName")
             .populate("teachSclass", "sclassName");
+        teachers = await Promise.all(teachers.map((teacher) => teacher.populate('teachSclasses', 'sclassName')));
         if (teachers.length > 0) {
             let modifiedTeachers = teachers.map((teacher) => {
                 const normalizedTeacher = teacher.toObject({ getters: true });
@@ -297,6 +309,13 @@ const getTeacherDetail = async (req, res) => {
             .populate("school", "schoolName")
             .populate("teachSclass", "sclassName")
         if (!(await verifyEntityBelongsToAdminSchool(req, res, teacher))) return;
+        const requester = await getRequestUser(req);
+        if (requester?.type === 'teacher' && String(requester.user._id) !== String(teacher?._id)) {
+            return res.status(403).send({ message: 'Teachers can only view their own employment record' });
+        }
+        if (requester?.type === 'admin' && !['Admin', 'SuperAdmin', 'HR'].includes(requester.user.role)) {
+            return res.status(403).send({ message: 'Your role cannot view teacher employment records' });
+        }
         if (teacher) {
             teacher.password = undefined;
             res.send(teacher);
@@ -376,6 +395,7 @@ const updateTeacherRole = async (req, res) => {
             .populate('teachSubject', 'subName sessions')
             .populate('school', 'schoolName')
             .populate('teachSclass', 'sclassName');
+        teacher = await teacher.populate('teachSclasses', 'sclassName');
 
         if (!updatedTeacher) {
             return res.status(404).send({ message: 'Teacher not found' });
@@ -389,7 +409,7 @@ const updateTeacherRole = async (req, res) => {
 };
 
 const updateTeacher = async (req, res) => {
-    const { name, email, phone, role, teachSubject, teachSubjects, teachSclass, salary, bankName, bankAccount, accountHolderName } = req.body;
+    const { name, email, phone, role, teachSubject, teachSubjects, teachSclass, teachSclasses, salary, bankName, bankAccount, accountHolderName } = req.body;
     try {
         const teacher = await Teacher.findById(req.params.id);
         if (!(await verifyEntityBelongsToAdminSchool(req, res, teacher))) return;
@@ -448,6 +468,7 @@ const updateTeacher = async (req, res) => {
         if (phone !== undefined) updateData.phone = phone;
         if (role) updateData.role = role;
         if (teachSclass) updateData.teachSclass = teachSclass;
+        if (Array.isArray(teachSclasses)) updateData.teachSclasses = teachSclasses;
         if (teachSubject !== undefined || teachSubjects !== undefined) {
             updateData.teachSubject = normalizedSubjectIds[0] || null;
             updateData.teachSubjects = normalizedSubjectIds;
@@ -470,6 +491,7 @@ const updateTeacher = async (req, res) => {
             .populate('teachSubjects', 'subName sessions')
             .populate('school', 'schoolName')
             .populate('teachSclass', 'sclassName');
+        await updatedTeacher.populate('teachSclasses', 'sclassName');
 
         await syncTeacherSubjectAssignments(updatedTeacher._id, normalizedSubjectIds);
 
@@ -875,7 +897,7 @@ const requestTeacherPasswordReset = async (req, res) => {
         teacher.resetPasswordExpires = Date.now() + 3600000; // 1 hour
         await teacher.save();
 
-        const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/Teacher/reset-password/${token}`;
+        const resetUrl = `${getFrontendBaseUrl(req)}/Teacher/reset-password/${token}`;
         const emailResult = await sendResetPasswordLink(teacher.email, teacher.name, resetUrl);
 
         res.send({ message: 'Password reset link sent', emailResult });
@@ -913,6 +935,10 @@ const resetTeacherPassword = async (req, res) => {
 // Admin-driven teacher password reset (Admin or SuperAdmin)
 const resetTeacherPasswordByAdmin = async (req, res) => {
     try {
+        if (!['Admin', 'SuperAdmin'].includes(req.admin?.role)) {
+            return res.status(403).send({ message: 'Only school admins can reset teacher passwords' });
+        }
+
         const adminId = getAdminIdFromReq(req);
         const teacherId = req.params.teacherId || req.params.id;
         const { newPassword } = req.body;

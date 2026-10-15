@@ -1,5 +1,13 @@
 const mongoose = require('mongoose');
 const { encryptText, decryptText } = require('../utils/encryption');
+const { createSearchTokens } = require('../utils/searchTokens');
+
+const normalizeEmailValue = (value) => {
+    if (value === undefined || value === null) return undefined;
+    const trimmed = String(value).trim();
+    if (!trimmed) return undefined;
+    return trimmed.toLowerCase();
+};
 
 const studentSchema = new mongoose.Schema({
     name: {
@@ -8,6 +16,7 @@ const studentSchema = new mongoose.Schema({
         set: encryptText,
         get: decryptText
     },
+    searchTokens: { type: [String], default: [], select: false },
     admissionNo: {
         type: String,
         required: true,
@@ -16,15 +25,17 @@ const studentSchema = new mongoose.Schema({
     },
     email: {
         type: String,
-        default: '',
         unique: true,
         sparse: true,
         lowercase: true,
-        trim: true
+        trim: true,
+        default: null,
+        set: normalizeEmailValue,
+        get: (value) => normalizeEmailValue(value),
     },
     rollNum: {
         type: Number,
-        required: true
+        default: undefined
     },
     photo: {
         type: String,
@@ -36,34 +47,40 @@ const studentSchema = new mongoose.Schema({
         set: encryptText,
         get: decryptText
     },
+    parentNameSearchTokens: { type: [String], default: [], select: false },
     parentPhone: {
         type: String,
         default: '',
         set: encryptText,
         get: decryptText
     },
+    parentPhoneSearchTokens: { type: [String], default: [], select: false },
     parentEmail: {
         type: String,
         default: ''
     },
+    parentEmailSearchTokens: { type: [String], default: [], select: false },
     guardianName: {
         type: String,
         default: '',
         set: encryptText,
         get: decryptText
     },
+    guardianNameSearchTokens: { type: [String], default: [], select: false },
     guardianPhone: {
         type: String,
         default: '',
         set: encryptText,
         get: decryptText
     },
+    guardianPhoneSearchTokens: { type: [String], default: [], select: false },
     guardianEmail: {
         type: String,
         default: '',
         lowercase: true,
         trim: true
     },
+    guardianEmailSearchTokens: { type: [String], default: [], select: false },
     guardianRelation: {
         type: String,
         default: ''
@@ -115,6 +132,11 @@ const studentSchema = new mongoose.Schema({
         ref: 'sclass',
         required: true,
     },
+    stream: {
+        type: String,
+        trim: true,
+        default: ''
+    },
     school: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'admin',
@@ -133,6 +155,16 @@ const studentSchema = new mongoose.Schema({
     totalFees: {
         type: Number,
         default: 0
+    },
+    feeAssessments: {
+        type: [{
+            academicYear: { type: String, required: true, trim: true },
+            term: { type: String, required: true, trim: true },
+            amount: { type: Number, required: true, min: 0 },
+            effectiveAt: { type: Date, required: true, default: Date.now },
+            changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'admin', default: null },
+        }],
+        default: [],
     },
     amountPaid: {
         type: Number,
@@ -196,6 +228,8 @@ const studentSchema = new mongoose.Schema({
             phoneNumber: { type: String, default: '' },
             balanceAfter: { type: Number, required: true, default: 0 },
             feePeriodKey: { type: String, default: 'initial' },
+            academicYear: { type: String, default: '' },
+            term: { type: String, default: '' },
             verifiedBy: { type: String, default: '' },
             verifiedDate: { type: Date, default: null },
             provider: { type: String, default: '' },
@@ -229,6 +263,11 @@ const studentSchema = new mongoose.Schema({
                 type: String,
                 trim: true,
                 default: 'Term 1'
+            },
+            academicYear: {
+                type: String,
+                trim: true,
+                default: () => String(new Date().getFullYear()),
             },
             marksObtained: {
                 type: Number,
@@ -285,6 +324,14 @@ studentSchema.set('toJSON', { getters: true });
 studentSchema.set('toObject', { getters: true });
 
 studentSchema.pre('validate', function assignPaymentPeriod(next) {
+    this.email = normalizeEmailValue(this.email);
+    this.searchTokens = createSearchTokens(this.name);
+    this.parentNameSearchTokens = createSearchTokens(this.parentName);
+    this.parentPhoneSearchTokens = createSearchTokens(String(this.parentPhone || '').replace(/\D/g, ''));
+    this.parentEmailSearchTokens = createSearchTokens(this.parentEmail);
+    this.guardianNameSearchTokens = createSearchTokens(this.guardianName);
+    this.guardianPhoneSearchTokens = createSearchTokens(String(this.guardianPhone || '').replace(/\D/g, ''));
+    this.guardianEmailSearchTokens = createSearchTokens(this.guardianEmail);
     const currentPeriod = this.feePeriodKey || 'initial';
     if (Array.isArray(this.paymentHistory)) {
         this.paymentHistory.forEach((payment) => {
@@ -299,6 +346,20 @@ studentSchema.pre('validate', function assignPaymentPeriod(next) {
 
 studentSchema.index({ school: 1, admissionNo: 1 }, { unique: true });
 studentSchema.index({ school: 1, sclassName: 1, rollNum: 1 }, { unique: true });
-studentSchema.index({ school: 1, email: 1 }, { unique: true, sparse: true });
+studentSchema.index({ school: 1, email: 1 }, {
+    unique: true,
+    sparse: true,
+    partialFilterExpression: { email: { $type: 'string' } }
+});
+studentSchema.index({ school: 1, sclassName: 1, stream: 1, createdAt: -1 });
+studentSchema.index({ school: 1, searchTokens: 1 });
+studentSchema.index({ school: 1, parentNameSearchTokens: 1 });
+studentSchema.index({ school: 1, parentPhoneSearchTokens: 1 });
+studentSchema.index({ school: 1, parentEmailSearchTokens: 1 });
+studentSchema.index({ school: 1, guardianNameSearchTokens: 1 });
+studentSchema.index({ school: 1, guardianPhoneSearchTokens: 1 });
+studentSchema.index({ school: 1, guardianEmailSearchTokens: 1 });
+studentSchema.index({ school: 1, 'examResult.academicYear': 1, 'examResult.term': 1, 'examResult.examType': 1, 'examResult.subName': 1 });
+studentSchema.index({ school: 1, 'paymentHistory.academicYear': 1, 'paymentHistory.term': 1, 'paymentHistory.status': 1, 'paymentHistory.date': -1 });
 studentSchema.index({ 'attendance.subName': 1, 'attendance.date': 1 });
 module.exports = mongoose.model("student", studentSchema);

@@ -1,5 +1,6 @@
 // SMS Notification Service using Twilio or Africast
 // Install: npm install twilio dotenv
+const Settings = require('../models/settingsSchema.js');
 
 // Validate phone number format (E.164 format: +countrycode...)
 const validatePhoneNumber = (phoneNumber) => {
@@ -25,7 +26,27 @@ const normalizePhoneNumber = (phoneNumber) => {
     return normalized;
 };
 
-const sendSMS = async (phoneNumber, message) => {
+const getSchoolSmsConfig = async (schoolId) => {
+    if (!schoolId) return null;
+
+    const settings = await Settings.findOne({ school: schoolId }).select('smsSettings').lean();
+    const smsSettings = settings?.smsSettings;
+    if (!smsSettings) return null;
+    if (!smsSettings.enabled) return { disabled: true };
+
+    const provider = String(smsSettings.smsProvider || '').toLowerCase();
+    return {
+        provider: provider === 'twilio' ? 'twilio' : provider === 'africa_talking' ? 'africast' : provider,
+        twilioAccountSid: smsSettings.apiKey,
+        twilioAuthToken: smsSettings.apiSecret,
+        twilioPhoneNumber: smsSettings.senderID,
+        africastApiKey: smsSettings.apiKey,
+        africastUsername: smsSettings.apiSecret,
+        africastSenderId: smsSettings.senderID,
+    };
+};
+
+const sendSMS = async (phoneNumber, message, schoolId) => {
     try {
         if (!phoneNumber || !message) {
             console.warn('[SMS] Phone or message is empty');
@@ -37,12 +58,17 @@ const sendSMS = async (phoneNumber, message) => {
         }
 
         const normalizedPhone = normalizePhoneNumber(phoneNumber);
-        const smsProvider = process.env.SMS_PROVIDER || 'twilio'; // twilio, africast, or demo
-        const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID;
-        const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN;
-        const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER;
-        const africastApiKey = process.env.AFRICAST_API_KEY;
-        const africastUsername = process.env.AFRICAST_USERNAME;
+        const schoolConfig = await getSchoolSmsConfig(schoolId);
+        if (schoolConfig?.disabled) {
+            return { success: false, error: 'SMS notifications are disabled for this school' };
+        }
+
+        const smsProvider = schoolConfig?.provider || process.env.SMS_PROVIDER || 'twilio'; // twilio, africast, or demo
+        const twilioAccountSid = schoolConfig?.twilioAccountSid || process.env.TWILIO_ACCOUNT_SID;
+        const twilioAuthToken = schoolConfig?.twilioAuthToken || process.env.TWILIO_AUTH_TOKEN;
+        const twilioPhoneNumber = schoolConfig?.twilioPhoneNumber || process.env.TWILIO_PHONE_NUMBER;
+        const africastApiKey = schoolConfig?.africastApiKey || process.env.AFRICAST_API_KEY;
+        const africastUsername = schoolConfig?.africastUsername || process.env.AFRICAST_USERNAME;
 
         // Twilio SMS
         if (smsProvider === 'twilio' && twilioAccountSid && twilioAuthToken && twilioPhoneNumber) {
@@ -73,7 +99,7 @@ const sendSMS = async (phoneNumber, message) => {
                     api_key: africastApiKey,
                     destination: normalizedPhone,
                     message: message,
-                    senderid: process.env.AFRICAST_SENDER_ID || 'SchoolMgmt'
+                    senderid: schoolConfig?.africastSenderId || process.env.AFRICAST_SENDER_ID || 'SchoolMgmt'
                 }, { timeout: 10000 });
 
                 if (response.data.status === 'success') {
@@ -103,13 +129,18 @@ const sendFeeConfirmationToParent = async (studentName, parentPhone, amount, bal
     return await sendSMS(parentPhone, message);
 };
 
-const sendPaymentReminderToParent = async (studentName, parentPhone, totalFees, balance, paybillCode) => {
-    const message = `Fee Reminder: ${studentName} owes KES ${balance} out of KES ${totalFees}. Paybill: ${paybillCode}. Account: ${studentName}. Please pay soon. Thank you!`;
-    return await sendSMS(parentPhone, message);
+const createPaymentReminderMessage = (studentName, admissionNo, totalFees, amountPaid, balance, paybillCode) => {
+    return `Fee reminder for ${studentName} (Admission No: ${admissionNo}). Total fees: KES ${totalFees}. Paid: KES ${amountPaid}. Outstanding balance: KES ${balance}. Paybill: ${paybillCode}. Account: ${admissionNo}.`;
+};
+
+const sendPaymentReminderToParent = async (studentName, admissionNo, parentPhone, totalFees, amountPaid, balance, paybillCode, schoolId) => {
+    const message = createPaymentReminderMessage(studentName, admissionNo, totalFees, amountPaid, balance, paybillCode);
+    return await sendSMS(parentPhone, message, schoolId);
 };
 
 module.exports = {
     sendSMS,
     sendFeeConfirmationToParent,
-    sendPaymentReminderToParent
+    sendPaymentReminderToParent,
+    createPaymentReminderMessage,
 };

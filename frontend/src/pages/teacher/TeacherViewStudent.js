@@ -9,6 +9,7 @@ import CustomPieChart from '../../components/CustomPieChart'
 import { PurpleButton } from '../../components/buttonStyles';
 import { StyledTableCell, StyledTableRow } from '../../components/styles';
 import { buildPrintBrandingHtml, printBrandingStyles } from '../../utils/printBranding';
+import { useTeacherClass } from './TeacherClassContext';
 
 const TeacherViewStudent = () => {
 
@@ -19,8 +20,12 @@ const TeacherViewStudent = () => {
 
     const address = "Student"
     const studentID = params.id
-    const teachSubject = currentUser.teachSubject?.subName
-    const teachSubjectID = currentUser.teachSubject?._id
+    const { selectedClassId, classes } = useTeacherClass();
+    const classMatches = classes.find((item) => item.id === String(selectedClassId || currentUser?.teachSclass?._id || currentUser?.teachSclass || ''));
+    const teachSubjects = [currentUser?.teachSubject, ...(currentUser?.teachSubjects || [])].filter(Boolean);
+    const selectedClassSubjects = teachSubjects.filter((subject) => String(subject?.sclassName?._id || subject?.sclassName || '') === String(selectedClassId || currentUser?.teachSclass?._id || currentUser?.teachSclass || ''));
+    const teachSubject = selectedClassSubjects[0]?.subName || currentUser.teachSubject?.subName;
+    const teachSubjectID = selectedClassSubjects[0]?._id || currentUser.teachSubject?._id;
 
     useEffect(() => {
         dispatch(getUserDetails(studentID, address));
@@ -103,7 +108,7 @@ const TeacherViewStudent = () => {
                             <br />
                             Roll Number: {userDetails.rollNum}
                             <br />
-                            Class: {sclassName.sclassName}
+                            Class: {classMatches?.name || sclassName.sclassName || selectedClassId || 'Assigned class'}
                             <br />
                             School: {studentSchool.schoolName}
                         </div>

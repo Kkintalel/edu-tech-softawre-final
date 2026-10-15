@@ -101,6 +101,14 @@ const settingsSchema = new mongoose.Schema({
         schoolName: String,
         schoolTagline: String,
     },
+    schoolProfile: {
+        postalAddress: { type: String, default: '' },
+        physicalAddress: { type: String, default: '' },
+        address: { type: String, default: '' },
+        phone: { type: String, default: '' },
+        email: { type: String, default: '' },
+        website: { type: String, default: '' },
+    },
     
     // Receipts
     receiptSettings: {
