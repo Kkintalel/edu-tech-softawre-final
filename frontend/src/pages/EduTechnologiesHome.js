@@ -9,9 +9,7 @@ import GroupsIcon from '@mui/icons-material/Groups';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import AssessmentIcon from '@mui/icons-material/Assessment';
-import PaymentsIcon from '@mui/icons-material/Payments';
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
-import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import PhoneIphoneIcon from '@mui/icons-material/PhoneIphone';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import classroomIllustration from '../assets/classroom.png';
@@ -38,16 +36,13 @@ const features = [
 ];
 
 const portals = [
-    { name: 'School administration', detail: 'Manage the school workspace', href: '/staff-login', icon: AdminPanelSettingsIcon },
-    { name: 'Teachers', detail: 'Classes, attendance, and learning', href: '/Teacherlogin', icon: SchoolIcon },
-    { name: 'Parents', detail: 'Fees, progress, and updates', href: '/Parent/login', icon: GroupsIcon },
+    { name: 'Parents', detail: 'Fees, progress, and school updates', href: '/Parent/login', icon: GroupsIcon },
     { name: 'Students', detail: 'Learning and school information', href: '/Studentlogin', icon: AssessmentIcon },
-    { name: 'Finance team', detail: 'Payments, reports, and budgets', href: '/Accountantlogin', icon: PaymentsIcon },
 ];
 
 const faqs = [
     { question: 'What is EduTechnologies?', answer: 'EduTechnologies is a school management system for coordinating administration, academic records, finance, communication, and school community portals.' },
-    { question: 'Can parents and students use separate portals?', answer: 'Yes. Parent and student sign-in areas are available alongside the school administration, teacher, and finance portals.' },
+    { question: 'How do parents and students sign in?', answer: 'Parents and students have separate sign-in pages. Choose the portal for your role and use its listed credentials.' },
     { question: 'How does the finance workflow support M-Pesa?', answer: 'The system includes M-Pesa payment workflows and fee tracking, with payment history and finance reporting available to authorized school users.' },
     { question: 'How is pricing determined?', answer: 'Pricing depends on the school’s requirements and selected modules. Contact the EduTechnologies team for current pricing.' },
     { question: 'How can our school see a demo?', answer: 'Send a request using the form below and our team will follow up by email.' },
@@ -92,7 +87,7 @@ const EduTechnologiesHome = () => {
                 <nav className="desktop-nav" aria-label="Main navigation">
                     {navigation.map((item) => <a key={item.href} href={item.href}>{item.label}</a>)}
                 </nav>
-                <Link className="header-login" to="/staff-login">Login <ArrowForwardIcon /></Link>
+                <Link className="header-login" to="/portal-login">Parent &amp; Student Login <ArrowForwardIcon /></Link>
                 <button
                     className="mobile-menu-toggle"
                     type="button"
@@ -107,7 +102,7 @@ const EduTechnologiesHome = () => {
                         {navigation.map((item) => <a key={item.href} href={item.href} onClick={closeMenu}>{item.label}</a>)}
                         <a href="#testimonials" onClick={closeMenu}>School voices</a>
                         <a href="#contact" onClick={closeMenu}>Contact</a>
-                        <Link to="/staff-login" onClick={closeMenu}>Existing school system</Link>
+                        <Link to="/portal-login" onClick={closeMenu}>Parent &amp; Student Login</Link>
                     </nav>
                 )}
             </header>
@@ -122,7 +117,7 @@ const EduTechnologiesHome = () => {
                         <p className="hero-lede">One connected system for the people, learning, and finances behind every school day.</p>
                         <div className="hero-actions">
                             <a className="button button-lime" href="#demo">Request a demo <ArrowForwardIcon /></a>
-                            <Link className="button button-outline-light" to="/staff-login">Existing school login</Link>
+                            <Link className="button button-outline-light" to="/portal-login">Parent &amp; Student Login</Link>
                         </div>
                         <div className="hero-stats" aria-label="EduTechnologies community">
                             <div><strong>100</strong><span>Schools</span></div>
@@ -206,7 +201,7 @@ const EduTechnologiesHome = () => {
                                 <li><CheckCircleOutlineIcon /> Fee balances and payment history</li>
                                 <li><CheckCircleOutlineIcon /> Finance reports, budgets, and audit trails</li>
                             </ul>
-                            <Link className="button button-dark" to="/staff-login">Explore the school system <ArrowForwardIcon /></Link>
+                            <Link className="button button-dark" to="/portal-login">Parent &amp; Student Login <ArrowForwardIcon /></Link>
                         </div>
                         <div className="finance-visual" aria-label="Finance workflow preview">
                             <div className="finance-visual-head"><span className="mpesa-mark">M</span><div><small>PAYMENT WORKFLOW</small><h3>Fees, recorded clearly.</h3></div></div>
@@ -315,7 +310,7 @@ const EduTechnologiesHome = () => {
             <footer className="site-footer">
                 <a className="wordmark footer-wordmark" href="#home"><span className="wordmark-symbol"><SchoolIcon /></span><span>edu<span className="wordmark-light">technologies</span></span></a>
                 <p>School management, connected.</p>
-                <div className="footer-links"><a href="#features">Platform</a><a href="#finance">Finance</a><a href="#contact">Contact</a><Link to="/staff-login">Login</Link></div>
+                <div className="footer-links"><a href="#features">Platform</a><a href="#finance">Finance</a><a href="#contact">Contact</a><Link to="/portal-login">Parent &amp; Student Login</Link></div>
                 <small>© {new Date().getFullYear()} EduTechnologies</small>
             </footer>
         </div>

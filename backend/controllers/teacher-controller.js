@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const Teacher = require('../models/teacherSchema.js');
 const Admin = require('../models/adminSchema.js');
 const Subject = require('../models/subjectSchema.js');
+const Sclass = require('../models/sclassSchema.js');
 const School = require('../models/schoolSchema.js');
 const { sendResetPasswordLink, sendPasswordResetEmail, sendEmail } = require('../services/emailService.js');
 const { createBankTransfer } = require('../services/bankService.js');
@@ -305,9 +306,10 @@ const getTeacherDetail = async (req, res) => {
     try {
         let teacher = await Teacher.findById(req.params.id)
             .populate("teachSubject", "subName sessions")
-            .populate("teachSubjects", "subName sessions")
+            .populate({ path: 'teachSubjects', select: 'subName sessions sclassName', populate: { path: 'sclassName', select: 'sclassName' } })
             .populate("school", "schoolName")
             .populate("teachSclass", "sclassName")
+            .populate("teachSclasses", "sclassName")
         if (!(await verifyEntityBelongsToAdminSchool(req, res, teacher))) return;
         const requester = await getRequestUser(req);
         if (requester?.type === 'teacher' && String(requester.user._id) !== String(teacher?._id)) {
@@ -452,7 +454,32 @@ const updateTeacher = async (req, res) => {
         }
 
         const normalizedSubjectIds = normalizeTeacherSubjectIds(teachSubject, teachSubjects);
+        const assignmentWasSubmitted = teachSubject !== undefined || teachSubjects !== undefined;
+        const classAssignmentsWereSubmitted = teachSclass !== undefined || teachSclasses !== undefined;
+        const selectedClassIds = classAssignmentsWereSubmitted
+            ? [...new Set((Array.isArray(teachSclasses) ? teachSclasses : [teachSclass]).filter(Boolean).map(String))]
+            : [...new Set([...(teacher.teachSclasses || []).map(String), ...(teacher.teachSclass ? [String(teacher.teachSclass)] : [])])];
+
+        if (classAssignmentsWereSubmitted) {
+            if (selectedClassIds.length === 0) {
+                return res.status(400).send({ message: 'Assign the teacher to at least one class' });
+            }
+            const validClasses = await Sclass.find({ _id: { $in: selectedClassIds }, school: teacher.school }).select('_id');
+            if (validClasses.length !== selectedClassIds.length) {
+                return res.status(400).send({ message: 'One or more selected classes do not belong to this school' });
+            }
+        }
+
         if (normalizedSubjectIds.length > 0) {
+            const validSubjects = await Subject.find({
+                _id: { $in: normalizedSubjectIds },
+                school: teacher.school,
+                sclassName: { $in: selectedClassIds },
+            }).select('_id');
+            if (validSubjects.length !== normalizedSubjectIds.length) {
+                return res.status(400).send({ message: 'Each assigned subject must belong to one of the teacher’s assigned classes and this school' });
+            }
+
             const assignedSubject = await Subject.findOne({
                 _id: { $in: normalizedSubjectIds },
                 teacher: { $exists: true, $ne: teacher._id }
@@ -467,9 +494,11 @@ const updateTeacher = async (req, res) => {
         if (email) updateData.email = email;
         if (phone !== undefined) updateData.phone = phone;
         if (role) updateData.role = role;
-        if (teachSclass) updateData.teachSclass = teachSclass;
-        if (Array.isArray(teachSclasses)) updateData.teachSclasses = teachSclasses;
-        if (teachSubject !== undefined || teachSubjects !== undefined) {
+        if (classAssignmentsWereSubmitted) {
+            updateData.teachSclass = selectedClassIds[0];
+            updateData.teachSclasses = selectedClassIds;
+        }
+        if (assignmentWasSubmitted) {
             updateData.teachSubject = normalizedSubjectIds[0] || null;
             updateData.teachSubjects = normalizedSubjectIds;
         }
@@ -493,7 +522,9 @@ const updateTeacher = async (req, res) => {
             .populate('teachSclass', 'sclassName');
         await updatedTeacher.populate('teachSclasses', 'sclassName');
 
-        await syncTeacherSubjectAssignments(updatedTeacher._id, normalizedSubjectIds);
+        if (assignmentWasSubmitted) {
+            await syncTeacherSubjectAssignments(updatedTeacher._id, normalizedSubjectIds);
+        }
 
         updatedTeacher.password = undefined;
         res.send(updatedTeacher);

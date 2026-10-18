@@ -24,6 +24,7 @@ import Popper from '@mui/material/Popper';
 import MenuItem from '@mui/material/MenuItem';
 import MenuList from '@mui/material/MenuList';
 import Popup from '../../../components/Popup';
+import * as XLSX from 'xlsx';
 
 const ShowStudents = () => {
 
@@ -113,8 +114,17 @@ const ShowStudents = () => {
         setImportResults(null);
 
         try {
+            let importFile = file;
+            if (/\.(xlsx|xls)$/i.test(file.name)) {
+                const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: false });
+                const firstSheetName = workbook.SheetNames[0];
+                if (!firstSheetName) throw new Error('Excel workbook does not contain a worksheet');
+                const csv = XLSX.utils.sheet_to_csv(workbook.Sheets[firstSheetName]);
+                importFile = new File([csv], file.name.replace(/\.(xlsx|xls)$/i, '.csv'), { type: 'text/csv' });
+            }
+
             const formData = new FormData();
-            formData.append('studentsFile', file);
+            formData.append('studentsFile', importFile);
 
             const response = await axios.post(
                 `${process.env.REACT_APP_BASE_URL || 'http://localhost:5000'}/Students/Import/${schoolId}`,
@@ -278,7 +288,7 @@ const ShowStudents = () => {
             <input
                 ref={fileInputRef}
                 type="file"
-                accept=".csv"
+                accept=".csv,.xlsx,.xls"
                 hidden
                 onChange={handleImportFile}
             />

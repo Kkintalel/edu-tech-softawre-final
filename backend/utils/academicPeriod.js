@@ -1,4 +1,5 @@
 const AcademicYear = require('../models/academicYearSchema');
+const Settings = require('../models/settingsSchema');
 
 const resolveTermForDate = (academicYear, date = new Date()) => {
     if (!academicYear) return null;
@@ -62,6 +63,12 @@ const recordFeeAssessment = async (student, amount, effectiveAt = new Date(), ch
 
 const tagPaymentWithAcademicPeriod = async (student, payment, date = payment.date || new Date()) => {
     if (payment.academicYear && payment.term) return payment;
+    const settings = await Settings.findOne({ school: student.school }).select('activeAcademicYear activeTerm').lean();
+    if (settings?.activeAcademicYear && settings?.activeTerm) {
+        payment.academicYear = settings.activeAcademicYear;
+        payment.term = settings.activeTerm;
+        return payment;
+    }
     const period = await resolveAcademicPeriod(date, student.school);
     if (period) {
         payment.academicYear = period.academicYear;

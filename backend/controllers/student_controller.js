@@ -17,7 +17,7 @@ const { logAuditAction } = require('../utils/auditLogger');
 const { validateStudentInput, validateStudentUpdateInput, validatePassword, validateEmail } = require('../utils/validation.js');
 const { getAdminIdFromReq, getRequestUser, verifySchoolId, verifyEntityBelongsToAdminSchool, enforceSubscriptionStatus } = require('../middleware/schoolAccess.js');
 const { buildFinancialReport, isDateRangeWithinPeriod } = require('../utils/financialReport');
-const { recordFeeAssessment, tagPaymentWithAcademicPeriod } = require('../utils/academicPeriod');
+const { recordFeeAssessment, resolveAcademicPeriod, tagPaymentWithAcademicPeriod } = require('../utils/academicPeriod');
 const { issueAdminToken } = require('../utils/authToken');
 const { invalidateAnalyticsCache } = require('../utils/analyticsCache');
 const { createSearchToken, getSearchTerms } = require('../utils/searchTokens');
@@ -57,9 +57,10 @@ const calculateResultGrade = (marks, gradingSystem = 'achievement') => {
 };
 
 const getComputedResult = (result) => {
-    const gradingSystem = GRADING_TABLES[result.gradingSystem] ? result.gradingSystem : 'achievement';
-    const grade = calculateResultGrade(result.marksObtained, gradingSystem);
-    return { ...result, gradingSystem, ...grade };
+    const resultData = typeof result?.toObject === 'function' ? result.toObject() : result;
+    const gradingSystem = GRADING_TABLES[resultData.gradingSystem] ? resultData.gradingSystem : 'achievement';
+    const grade = calculateResultGrade(resultData.marksObtained, gradingSystem);
+    return { ...resultData, gradingSystem, ...grade };
 };
 
 const getCbcReportRemarks = (average, hasResults) => {
@@ -441,7 +442,9 @@ const findClassId = async (schoolId, value) => {
 };
 
 const createStudentFromCsvRow = async (row, schoolId) => {
-    const studentName = getCsvField(row, 'name', 'studentname');
+    const firstName = getCsvField(row, 'firstname', 'first name');
+    const lastName = getCsvField(row, 'lastname', 'last name');
+    const studentName = getCsvField(row, 'name', 'studentname') || `${firstName} ${lastName}`.trim();
     const admissionNoInput = getCsvField(row, 'admissionno', 'admissionnumber', 'admno');
     const rollNumValue = getCsvField(row, 'rollnum', 'rollnumber', 'roll');
     const sclassValue = getCsvField(row, 'sclassname', 'classname', 'class', 'classid');
@@ -458,6 +461,26 @@ const createStudentFromCsvRow = async (row, schoolId) => {
     const previousLevelGrade = getCsvField(row, 'previouslevelgrade', 'previousgrade', 'previousgradelevel');
     const passwordInput = getCsvField(row, 'password');
     const emailInput = getCsvField(row, 'email');
+    const genderInput = getCsvField(row, 'gender');
+    const dateOfBirthInput = getCsvField(row, 'dateofbirth', 'dob');
+
+    const normalizedGender = genderInput
+        ? `${genderInput.slice(0, 1).toUpperCase()}${genderInput.slice(1).toLowerCase()}`
+        : '';
+    if (normalizedGender && !['Male', 'Female', 'Other'].includes(normalizedGender)) {
+        return { error: `Gender '${genderInput}' must be Male, Female, or Other` };
+    }
+
+    let dateOfBirth = null;
+    if (dateOfBirthInput) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirthInput)) {
+            return { error: 'Date of birth must use YYYY-MM-DD format' };
+        }
+        dateOfBirth = new Date(`${dateOfBirthInput}T00:00:00.000Z`);
+        if (Number.isNaN(dateOfBirth.getTime()) || dateOfBirth.toISOString().slice(0, 10) !== dateOfBirthInput) {
+            return { error: `Date of birth '${dateOfBirthInput}' is invalid` };
+        }
+    }
 
     const sclassId = await findClassId(schoolId, sclassValue);
     if (!sclassId) {
@@ -471,6 +494,8 @@ const createStudentFromCsvRow = async (row, schoolId) => {
 
     const studentData = {
         name: studentName,
+        gender: normalizedGender,
+        dateOfBirth,
         admissionNo: admissionNoInput || '',
         rollNum,
         sclassName: sclassId,
@@ -489,6 +514,39 @@ const createStudentFromCsvRow = async (row, schoolId) => {
         school: schoolId,
         role: 'Student'
     };
+
+    const schoolSettings = await Settings.findOne({ school: schoolId })
+        .select('activeAcademicYear activeTerm financeSettings.termFees');
+    if (schoolSettings?.activeAcademicYear || schoolSettings?.activeTerm) {
+        if (!schoolSettings.activeAcademicYear || !schoolSettings.activeTerm) {
+            return { error: 'The school active academic year and term are incomplete; finish term setup before importing students' };
+        }
+
+        const activeTermFee = (schoolSettings.financeSettings?.termFees || []).find((entry) =>
+            String(entry.classId) === String(sclassId) &&
+            entry.academicYear === schoolSettings.activeAcademicYear &&
+            entry.term === schoolSettings.activeTerm
+        );
+        if (!activeTermFee) {
+            return { error: `No fee schedule exists for class '${sclassValue}' in ${schoolSettings.activeTerm} ${schoolSettings.activeAcademicYear}` };
+        }
+
+        const amount = Number(activeTermFee.feeAmount || 0);
+        studentData.totalFees = amount;
+        studentData.amountPaid = 0;
+        studentData.balance = amount;
+        studentData.carriedForwardBalance = 0;
+        studentData.feePeriodKey = `term:${schoolSettings.activeAcademicYear}:${schoolSettings.activeTerm.toLowerCase()}`;
+        studentData.paymentStatus = amount > 0 ? 'Pending' : 'Completed';
+        studentData.feeAssessments = [{
+            academicYear: schoolSettings.activeAcademicYear,
+            term: schoolSettings.activeTerm,
+            amount,
+            newCharges: amount,
+            carriedForwardBalance: 0,
+            changedBy: null,
+        }];
+    }
 
     const validation = validateStudentInput(studentData);
     if (!validation.valid) {
@@ -686,6 +744,7 @@ const getStudentDetail = async (req, res) => {
         let student = await Student.findById(req.params.id)
             .populate("school", "schoolName")
             .populate("sclassName", "sclassName")
+            .populate('individualSubjects', 'subName subCode')
             .populate({ path: 'examResult.subName', select: 'subName teacher', populate: { path: 'teacher', select: 'name' } })
             .populate('attendance.subName', 'subName')
             .select("-password");
@@ -1524,7 +1583,7 @@ const updateExamResult = async (req, res) => {
         const normalizedAcademicYear = (academicYear || new Date().getFullYear()).toString().trim();
         const computedGrade = calculateResultGrade(numericMarks, normalizedGradingSystem);
 
-        const student = await Student.findById(req.params.id).select('_id name school sclassName examResult reportCardStatus');
+        const student = await Student.findById(req.params.id).select('_id name school sclassName examResult reportCardStatus reportCardHistory');
         if (!(await verifyEntityBelongsToAdminSchool(req, res, student))) return;
 
         if (!student) {
@@ -1532,6 +1591,16 @@ const updateExamResult = async (req, res) => {
         }
         if (student.reportCardStatus === 'Published') {
             return res.status(409).send({ message: 'This report card is published. Reopen it before changing marks.' });
+        }
+        const settings = await Settings.findOne({ school: student.school }).select('closedTerms').lean();
+        const termIsClosed = (settings?.closedTerms || []).some((entry) =>
+            entry.academicYear === normalizedAcademicYear && entry.term === normalizedTerm
+        );
+        const termReportIsPublished = (student.reportCardHistory || []).some((entry) =>
+            entry.academicYear === normalizedAcademicYear && entry.term === normalizedTerm && entry.status === 'Published'
+        );
+        if (termIsClosed || termReportIsPublished) {
+            return res.status(409).send({ message: `${normalizedTerm} ${normalizedAcademicYear} is closed. Reopen the report card through an authorized amendment workflow before changing marks.` });
         }
 
         const requester = await getRequestUser(req);
@@ -1685,10 +1754,38 @@ const updateReportCardStatus = async (req, res) => {
         if (!(await verifyEntityBelongsToAdminSchool(req, res, student))) return;
         if (!student) return res.status(404).send({ message: 'Student not found' });
 
+        const settings = await Settings.findOne({ school: student.school });
+        const academicYear = String(settings?.activeAcademicYear || req.body.academicYear || new Date().getFullYear());
+        const term = String(settings?.activeTerm || req.body.term || 'Term 1');
+        const historyEntry = (student.reportCardHistory || []).find((entry) =>
+            entry.academicYear === academicYear && entry.term === term
+        );
+        const reportStatus = status === 'Published' ? 'Published' : 'Amended';
+        if (historyEntry) {
+            historyEntry.status = reportStatus;
+            historyEntry.publishedAt = status === 'Published' ? new Date() : null;
+            historyEntry.publishedBy = status === 'Published' ? req.userId : null;
+        } else {
+            student.reportCardHistory.push({
+                academicYear,
+                term,
+                status: reportStatus,
+                publishedAt: status === 'Published' ? new Date() : null,
+                publishedBy: status === 'Published' ? req.userId : null,
+            });
+        }
+
         student.reportCardStatus = status === 'Published' ? 'Published' : 'Amended';
         student.reportCardPublishedAt = status === 'Published' ? new Date() : null;
         student.reportCardPublishedBy = status === 'Published' ? req.userId : null;
         await student.save();
+
+        if (settings && status === 'Draft') {
+            settings.closedTerms = (settings.closedTerms || []).filter((entry) =>
+                entry.academicYear !== academicYear || entry.term !== term
+            );
+            await settings.save();
+        }
 
         await logAuditAction({
             school: student.school,
@@ -1866,7 +1963,6 @@ const getAcademicReport = async (req, res) => {
             assessment: requestedAssessment,
             classId: requestedClassId,
             stream: requestedStream,
-            studentId: requestedStudentId,
         });
 
         const schoolQuery = schoolId ? { school: schoolId } : {};
@@ -2230,12 +2326,13 @@ const normalizeAssessment = (value) => {
     return mapping[normalized] || normalized || 'END_TERM';
 };
 
-const buildAcademicReportQuery = ({ schoolId, classId, stream } = {}) => {
+const buildAcademicReportQuery = ({ schoolId, classId, stream, studentId } = {}) => {
     const query = {};
 
     if (schoolId) query.school = schoolId;
     if (classId && classId !== 'all' && classId !== 'All Classes') query.sclassName = classId;
     if (stream && stream !== 'all' && stream !== 'All Streams' && stream !== 'All') query.stream = stream;
+    if (studentId && studentId !== 'all') query._id = studentId;
 
     return query;
 };
@@ -2275,6 +2372,20 @@ const studentAttendance = async (req, res) => {
         }
 
         const subject = await Subject.findById(normalizedSubject);
+        if (!subject || String(subject.school) !== String(student.school) || String(subject.sclassName) !== String(student.sclassName)) {
+            return res.status(403).send({ message: 'Subject does not belong to this student’s school and class' });
+        }
+
+        const academicSettings = await Settings.findOne({ school: student.school }).select('activeAcademicYear activeTerm closedTerms').lean();
+        const academicPeriod = academicSettings?.activeAcademicYear && academicSettings?.activeTerm
+            ? { academicYear: academicSettings.activeAcademicYear, term: academicSettings.activeTerm }
+            : await resolveAcademicPeriod(normalizedDate, student.school);
+        const closedAttendancePeriod = (academicSettings?.closedTerms || []).some((entry) =>
+            entry.academicYear === academicPeriod?.academicYear && entry.term === academicPeriod?.term
+        );
+        if (closedAttendancePeriod) {
+            return res.status(409).send({ message: `${academicPeriod.term} ${academicPeriod.academicYear} is closed for attendance changes` });
+        }
         
         // Check for existing attendance record
         const existingAttendance = student.attendance.find((a) => {
@@ -2285,6 +2396,8 @@ const studentAttendance = async (req, res) => {
 
         if (existingAttendance) {
             existingAttendance.status = normalizedStatus;
+            existingAttendance.academicYear = academicPeriod?.academicYear || '';
+            existingAttendance.term = academicPeriod?.term || '';
         } else {
             const attendedSessions = student.attendance.filter((a) => a.subName?.toString() === normalizedSubject).length;
             // Support an explicit override from the caller (e.g., admin UI) to force-add attendance
@@ -2298,7 +2411,9 @@ const studentAttendance = async (req, res) => {
             student.attendance.push({ 
                 date: normalizedDate, 
                 status: normalizedStatus, 
-                subName: normalizedSubject 
+                subName: normalizedSubject,
+                academicYear: academicPeriod?.academicYear || '',
+                term: academicPeriod?.term || '',
             });
         }
 
@@ -2549,6 +2664,7 @@ module.exports = {
     getAcademicReport,
     buildAcademicReportQuery,
     filterResultsForReport,
+    getComputedResult,
     searchStudent,
     buildStudentSearchSchoolFilter,
     buildStudentSearchConditions,

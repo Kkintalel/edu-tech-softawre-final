@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { useSelector } from 'react-redux';
+import { useEffect, useState } from 'react';
+import axios from 'axios';
+import { useDispatch, useSelector } from 'react-redux';
 import {
     CssBaseline,
     Box,
@@ -33,10 +34,41 @@ import TeacherScheduleLiveClass from './TeacherScheduleLiveClass';
 import TeacherCreateQuiz from './TeacherCreateQuiz';
 import TeacherAssignmentReview from './TeacherAssignmentReview';
 import { TeacherClassProvider, TeacherClassSwitcher } from './TeacherClassContext';
+import { authSuccess } from '../../redux/userRelated/userSlice';
+
+const API_BASE_URL = process.env.REACT_APP_BASE_URL || 'http://localhost:5000';
 
 const TeacherDashboard = () => {
     const [open, setOpen] = useState(false);
+    const dispatch = useDispatch();
     const { currentUser } = useSelector((state) => state.user);
+    const isTeacher = currentUser?.role === 'Teacher' || currentUser?.roles?.includes('Teacher');
+
+    useEffect(() => {
+        if (!isTeacher || !currentUser?._id) return;
+
+        let active = true;
+        const headers = {
+            'x-admin-id': currentUser._id,
+            'x-user-id': currentUser._id,
+            ...(currentUser.token ? { Authorization: `Bearer ${currentUser.token}` } : {}),
+        };
+
+        axios.get(`${API_BASE_URL}/Teacher/${currentUser._id}`, { headers })
+            .then((response) => {
+                if (active && response.data?._id) {
+                    dispatch(authSuccess({ ...response.data, token: currentUser.token, role: 'Teacher' }));
+                }
+            })
+            .catch((error) => {
+                console.error('Unable to refresh teacher assignments:', error);
+            });
+
+        return () => { active = false; };
+    }, [currentUser?._id, currentUser?.token, dispatch, isTeacher]);
+
+    if (!isTeacher) return <Navigate to="/Teacherlogin" replace />;
+
     const classValues = [currentUser?.teachSclass, ...(currentUser?.teachSclasses || []), ...(currentUser?.teachSubjects || []).map((subject) => subject.sclassName)].filter(Boolean);
     const assignedClasses = [...new Map(classValues.map((value) => {
         const id = String(value?._id || value?.id || value);

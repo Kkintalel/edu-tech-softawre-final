@@ -8,6 +8,17 @@ const settingsSchema = new mongoose.Schema({
         required: true,
         unique: true,
     },
+    activeAcademicYear: { type: String, trim: true, default: '' },
+    activeTerm: { type: String, trim: true, default: '' },
+    closedTerms: {
+        type: [{
+            academicYear: { type: String, required: true, trim: true },
+            term: { type: String, required: true, trim: true },
+            closedAt: { type: Date, default: Date.now },
+            closedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'admin', default: null },
+        }],
+        default: [],
+    },
     
     // Time & Date Settings
     timezone: {
@@ -254,6 +265,16 @@ const settingsSchema = new mongoose.Schema({
                 classId: { type: mongoose.Schema.Types.ObjectId, ref: 'sclass' },
                 className: { type: String, default: '' },
                 feeAmount: { type: Number, default: 0 },
+            }],
+            default: [],
+        },
+        termFees: {
+            type: [{
+                academicYear: { type: String, required: true, trim: true },
+                term: { type: String, required: true, trim: true },
+                classId: { type: mongoose.Schema.Types.ObjectId, ref: 'sclass', required: true },
+                className: { type: String, default: '' },
+                feeAmount: { type: Number, required: true, min: 0 },
             }],
             default: [],
         },

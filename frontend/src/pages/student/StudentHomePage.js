@@ -78,7 +78,9 @@ const StudentHomePage = () => {
         fetchLearningCounts();
     }, [classID, headers]);
 
-    const numberOfSubjects = subjectsList && subjectsList.length;
+    const numberOfSubjects = Array.isArray(userDetails?.individualSubjects)
+        ? userDetails.individualSubjects.length
+        : subjectsList?.length || 0;
 
     useEffect(() => {
         if (userDetails) {

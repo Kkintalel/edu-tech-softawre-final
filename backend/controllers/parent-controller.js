@@ -4,7 +4,7 @@ const Parent = require('../models/parentSchema');
 const Student = require('../models/studentSchema');
 const Settings = require('../models/settingsSchema');
 const School = require('../models/schoolSchema');
-const { getRequestUser } = require('../middleware/schoolAccess');
+const { getRequestUser, enforceSubscriptionStatus } = require('../middleware/schoolAccess');
 const { issueAdminToken } = require('../utils/authToken');
 const { initiateStkPush, queryStkPushStatus } = require('../services/mpesaService');
 const { tagPaymentWithAcademicPeriod } = require('../utils/academicPeriod');
@@ -247,6 +247,121 @@ const parentLogIn = async (req, res) => {
     } catch (error) {
         console.error('Parent login error:', error);
         res.status(500).json({ message: 'Login failed', error: error.message });
+    }
+};
+
+const communityPortalLogin = async (req, res) => {
+    try {
+        const email = String(req.body.email || '').trim().toLowerCase();
+        const password = String(req.body.password || '');
+        if (!email || !password) {
+            return res.status(400).json({ message: 'Email and password are required' });
+        }
+
+        const parentAccounts = await Parent.find({ email }).limit(20);
+        for (const parent of parentAccounts) {
+            if (!(await bcrypt.compare(password, parent.password))) continue;
+            const student = await Student.findById(parent.studentId)
+                .populate('school', 'schoolName')
+                .populate('sclassName', 'sclassName');
+            if (!student) continue;
+
+            const school = await enforceSubscriptionStatus(student.school?._id || student.school);
+            if (school?.status === 'Suspended') {
+                return res.status(403).json({ message: 'Portal access is unavailable while the school account is suspended' });
+            }
+
+            const parentData = parent.toObject({ getters: true });
+            delete parentData.password;
+            return res.json({
+                ...parentData,
+                role: 'Parent',
+                token: issueAdminToken(parentData),
+                settings: await getStudentSchoolBranding(student),
+                student: {
+                    id: student._id,
+                    name: student.name,
+                    admissionNo: student.admissionNo,
+                    rollNum: student.rollNum,
+                    classId: student.sclassName?._id || null,
+                    className: student.sclassName?.sclassName || null,
+                    totalFees: student.totalFees,
+                    amountPaid: student.amountPaid,
+                    balance: student.balance,
+                    paymentStatus: student.paymentStatus,
+                },
+                school: student.school,
+            });
+        }
+
+        const parentStudents = await Student.find({ $or: [{ parentEmail: email }, { guardianEmail: email }] })
+            .populate('school', 'schoolName')
+            .populate('sclassName', 'sclassName');
+        const initialParentStudent = parentStudents.find((student) => student.admissionNo === password);
+        if (initialParentStudent) {
+            const contact = getParentContactByIdentifier(initialParentStudent, 'email', email);
+            if (contact) {
+                let parent = await Parent.findOne({ email, school: initialParentStudent.school });
+                if (!parent) {
+                    parent = await Parent.create({
+                        email,
+                        password: await bcrypt.hash(initialParentStudent.admissionNo, 10),
+                        name: contact.name || `${initialParentStudent.name} Parent`,
+                        phone: contact.phone || '',
+                        studentId: initialParentStudent._id,
+                        school: initialParentStudent.school,
+                        role: 'Parent',
+                    });
+                }
+                const parentData = parent.toObject({ getters: true });
+                delete parentData.password;
+                return res.json({
+                    ...parentData,
+                    role: 'Parent',
+                    token: issueAdminToken(parentData),
+                    settings: await getStudentSchoolBranding(initialParentStudent),
+                    student: {
+                        id: initialParentStudent._id,
+                        name: initialParentStudent.name,
+                        admissionNo: initialParentStudent.admissionNo,
+                        rollNum: initialParentStudent.rollNum,
+                        classId: initialParentStudent.sclassName?._id || initialParentStudent.sclassName || null,
+                        className: initialParentStudent.sclassName?.sclassName || '',
+                        totalFees: initialParentStudent.totalFees,
+                        amountPaid: initialParentStudent.amountPaid,
+                        balance: initialParentStudent.balance,
+                        paymentStatus: initialParentStudent.paymentStatus,
+                    },
+                    school: initialParentStudent.school,
+                });
+            }
+        }
+
+        const student = await Student.findOne({ email })
+            .populate('school', 'schoolName')
+            .populate('sclassName', 'sclassName')
+            .populate('examResult.subName', 'subName')
+            .populate('attendance.subName', 'subName');
+        if (!student || !(await bcrypt.compare(password, student.password))) {
+            return res.status(401).json({ message: 'Email or password is incorrect' });
+        }
+
+        const school = await enforceSubscriptionStatus(student.school?._id || student.school);
+        if (school?.status === 'Suspended') {
+            return res.status(403).json({ message: 'Portal access is unavailable while the school account is suspended' });
+        }
+
+        const studentData = student.toObject({ getters: true });
+        delete studentData.password;
+        studentData.role = 'Student';
+        studentData.forcePasswordChange = Boolean(studentData.forcePasswordChange);
+        const linkedSchool = await School.findOne({ $or: [{ _id: studentData.school?._id || studentData.school }, { schoolAdmin: studentData.school?._id || studentData.school }] }).select('_id');
+        studentData.settings = await Settings.findOne({ school: linkedSchool?._id || studentData.school?._id || studentData.school }).select('branding schoolProfile receiptSettings');
+        studentData.token = issueAdminToken(studentData);
+        return res.json(studentData);
+    } catch (error) {
+        console.error('Community portal login error:', error);
+        return res.status(500).json({ message: 'Unable to sign in right now' });
     }
 };
 
@@ -782,6 +897,7 @@ const mpesaCallback = async (req, res) => {
 module.exports = {
     getParentContactByIdentifier,
     parentLogIn,
+    communityPortalLogin,
     getStudentFeeInfo,
     parentPayFee,
     getParentStudents,

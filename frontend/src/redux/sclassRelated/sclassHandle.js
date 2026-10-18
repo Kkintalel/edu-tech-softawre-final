@@ -15,6 +15,37 @@ import {
 
 const API_BASE_URL = process.env.REACT_APP_BASE_URL || 'http://localhost:5000';
 
+const getCurrentUserFromStorage = () => {
+    if (typeof window === 'undefined') return {};
+
+    try {
+        return JSON.parse(localStorage.getItem('currentUser') || localStorage.getItem('user') || 'null') || {};
+    } catch (error) {
+        return {};
+    }
+};
+
+const buildRequestHeaders = (user = {}) => {
+    const headers = {};
+    const requesterId = user?._id || user?.id || null;
+    const schoolId = user?.school?._id || user?.school || user?.schoolId || null;
+    const token = user?.token || null;
+
+    if (requesterId) {
+        headers['x-admin-id'] = requesterId;
+        headers['x-user-id'] = requesterId;
+    } else if (schoolId) {
+        headers['x-admin-id'] = schoolId;
+        headers['x-user-id'] = schoolId;
+    }
+
+    if (token) {
+        headers.Authorization = `Bearer ${token}`;
+    }
+
+    return headers;
+};
+
 export const getAllSclasses = (id, address) => async (dispatch) => {
     dispatch(getRequest());
 
@@ -37,11 +68,8 @@ export const getClassStudents = (id) => async (dispatch, getState) => {
 
     try {
         const stateUser = getState()?.user?.currentUser;
-        const storedUser = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('currentUser') || 'null') : null;
-        const fallbackUser = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('user') || 'null') : null;
-        const currentUser = stateUser || storedUser || fallbackUser || {};
-        const requesterId = currentUser?._id || currentUser?.id || null;
-        const headers = requesterId ? { 'x-admin-id': requesterId } : {};
+        const currentUser = stateUser || getCurrentUserFromStorage();
+        const headers = buildRequestHeaders(currentUser);
 
         const result = await axios.get(`${API_BASE_URL}/Sclass/Students/${id}`, { headers });
         if (result.data.message) {
@@ -72,12 +100,8 @@ export const getSubjectList = (id, address) => async (dispatch, getState) => {
 
     try {
         const stateUser = getState()?.user?.currentUser;
-        const storedUser = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('currentUser') || 'null') : null;
-        const fallbackUser = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('user') || 'null') : null;
-        const currentUser = stateUser || storedUser || fallbackUser || {};
-        const requesterId = currentUser?._id || currentUser?.id || null;
-        const schoolId = currentUser?.school?._id || currentUser?.school || currentUser?.schoolId || null;
-        const headers = requesterId ? { 'x-admin-id': requesterId } : (schoolId ? { 'x-admin-id': schoolId } : {});
+        const currentUser = stateUser || getCurrentUserFromStorage();
+        const headers = buildRequestHeaders(currentUser);
 
         const result = await axios.get(`${API_BASE_URL}/${address}/${id}`, { headers });
         if (result.data.message) {
@@ -110,11 +134,8 @@ export const getSubjectDetails = (id, address) => async (dispatch, getState) => 
 
     try {
         const stateUser = getState()?.user?.currentUser;
-        const storedUser = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('currentUser') || 'null') : null;
-        const fallbackUser = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('user') || 'null') : null;
-        const currentUser = stateUser || storedUser || fallbackUser || {};
-        const requesterId = currentUser?._id || currentUser?.id || null;
-        const headers = requesterId ? { 'x-admin-id': requesterId } : {};
+        const currentUser = stateUser || getCurrentUserFromStorage();
+        const headers = buildRequestHeaders(currentUser);
 
         const result = await axios.get(`${API_BASE_URL}/${address}/${id}`, { headers });
         if (result.data) {

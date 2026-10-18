@@ -1,7 +1,10 @@
 const {
   buildAcademicReportQuery,
   filterResultsForReport,
+  getComputedResult,
 } = require('../controllers/student_controller');
+const mongoose = require('mongoose');
+const Student = require('../models/studentSchema');
 
 describe('Academic report filters', () => {
   test('builds a strict year-term-assessment-class-stream-student filter set', () => {
@@ -33,5 +36,26 @@ describe('Academic report filters', () => {
 
     const filtered = filterResultsForReport(results, 'Term 2', 'END_TERM');
     expect(filtered).toEqual([{ term: 'Term 2', examType: 'END_TERM', marksObtained: 82 }]);
+  });
+
+  test('preserves marks and assessment fields from Mongoose result subdocuments', () => {
+    const student = new Student({
+      examResult: [{
+        subName: new mongoose.Types.ObjectId(),
+        examType: 'END_TERM',
+        term: 'Term 1',
+        academicYear: '2026',
+        marksObtained: 84,
+      }],
+    });
+
+    const result = getComputedResult(student.examResult[0]);
+
+    expect(result).toMatchObject({
+      examType: 'END_TERM',
+      term: 'Term 1',
+      academicYear: '2026',
+      marksObtained: 84,
+    });
   });
 });

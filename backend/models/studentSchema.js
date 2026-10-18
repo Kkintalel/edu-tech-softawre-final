@@ -16,6 +16,15 @@ const studentSchema = new mongoose.Schema({
         set: encryptText,
         get: decryptText
     },
+    gender: {
+        type: String,
+        enum: ['Male', 'Female', 'Other'],
+        default: '',
+    },
+    dateOfBirth: {
+        type: Date,
+        default: null,
+    },
     searchTokens: { type: [String], default: [], select: false },
     admissionNo: {
         type: String,
@@ -132,6 +141,10 @@ const studentSchema = new mongoose.Schema({
         ref: 'sclass',
         required: true,
     },
+    individualSubjects: {
+        type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'subject' }],
+        default: null,
+    },
     stream: {
         type: String,
         trim: true,
@@ -161,6 +174,9 @@ const studentSchema = new mongoose.Schema({
             academicYear: { type: String, required: true, trim: true },
             term: { type: String, required: true, trim: true },
             amount: { type: Number, required: true, min: 0 },
+            newCharges: { type: Number, min: 0 },
+            carriedForwardBalance: { type: Number, default: 0 },
+            transitionId: { type: mongoose.Schema.Types.ObjectId, ref: 'TermTransition', default: null },
             effectiveAt: { type: Date, required: true, default: Date.now },
             changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'admin', default: null },
         }],
@@ -196,6 +212,13 @@ const studentSchema = new mongoose.Schema({
         ref: 'admin',
         default: null
     },
+    reportCardHistory: [{
+        academicYear: { type: String, trim: true, default: '' },
+        term: { type: String, trim: true, default: '' },
+        status: { type: String, enum: ['Draft', 'Published', 'Amended'], default: 'Draft' },
+        publishedAt: { type: Date, default: null },
+        publishedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'admin', default: null },
+    }],
     nextSchoolOpeningDate: {
         type: Date,
         default: null
@@ -207,7 +230,6 @@ const studentSchema = new mongoose.Schema({
     carriedForwardBalance: {
         type: Number,
         default: 0,
-        min: 0
     },
     paymentStatus: {
         type: String,
@@ -317,7 +339,9 @@ const studentSchema = new mongoose.Schema({
             ref: 'subject',
             required: true,
             index: true
-        }
+        },
+        academicYear: { type: String, trim: true, default: '' },
+        term: { type: String, trim: true, default: '' }
     }]
 });
 studentSchema.set('toJSON', { getters: true });

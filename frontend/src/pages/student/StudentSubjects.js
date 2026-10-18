@@ -20,6 +20,9 @@ const StudentSubjects = () => {
     const dispatch = useDispatch();
     const { subjectsList, sclassDetails } = useSelector((state) => state.sclass);
     const { userDetails, currentUser, loading, response, error } = useSelector((state) => state.user);
+    const studentSubjects = Array.isArray(userDetails?.individualSubjects)
+        ? userDetails.individualSubjects
+        : subjectsList;
 
     useEffect(() => {
         dispatch(getUserDetails(currentUser._id, "Student"));
@@ -67,9 +70,40 @@ const StudentSubjects = () => {
         const date = new Date(value);
         return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString();
     };
-    const getSubjectLabel = (result) => typeof result?.subName === 'string'
-        ? result.subName
-        : result?.subName?.subName || 'Unknown Subject';
+
+    const subjectNameLookup = useMemo(() => {
+        const lookup = new Map();
+        const subjectList = Array.isArray(userDetails?.individualSubjects)
+            ? userDetails.individualSubjects
+            : Array.isArray(subjectsList)
+                ? subjectsList
+                : [];
+
+        subjectList.forEach((subject) => {
+            if (!subject) return;
+            const subjectId = subject._id || subject.id;
+            if (!subjectId) return;
+            const subjectName = subject.subName || subject.name || subject.subjectName || 'Unknown Subject';
+            lookup.set(String(subjectId), subjectName);
+        });
+
+        return lookup;
+    }, [userDetails?.individualSubjects, subjectsList]);
+
+    const getSubjectLabel = (result) => {
+        if (!result) return 'Unknown Subject';
+
+        if (typeof result.subName === 'string') {
+            return subjectNameLookup.get(result.subName) || result.subName;
+        }
+
+        if (result.subName?.subName) return result.subName.subName;
+        if (result.subName?._id) return subjectNameLookup.get(String(result.subName._id)) || `Subject ${String(result.subName._id).slice(-6)}`;
+        if (result.subjectName) return result.subjectName;
+        if (result.subject?.subName) return result.subject.subName;
+        if (result.subName?.name) return result.subName.name;
+        return 'Unknown Subject';
+    };
     const trendData = useMemo(() => ['CAT', 'END_TERM'].map((examType) => {
         const results = subjectMarks.filter((result) => result.examType === examType);
         const marks = results.map((result) => Number(result.marksObtained || 0));
@@ -135,6 +169,7 @@ const StudentSubjects = () => {
             'Meeting Expectation': 0,
             'Approaching Expectation': 0,
             'Below Expectation': 0,
+            'No remark': 0,
             Unknown: 0,
         };
 
@@ -145,7 +180,7 @@ const StudentSubjects = () => {
             }
 
             const gradeInfo = calculateGrade(result.marksObtained, result.gradingSystem) || result;
-            const remark = gradeInfo?.remark || 'Unknown';
+            const remark = gradeInfo?.remark || result?.remark || 'No remark';
 
             if (acc[remark] !== undefined) {
                 acc[remark] += 1;
@@ -158,7 +193,7 @@ const StudentSubjects = () => {
 
     const getPerformanceChip = (result) => {
         const gradeInfo = calculateGrade(result.marksObtained, result.gradingSystem) || result;
-        const remark = gradeInfo?.remark || 'Unknown';
+        const remark = gradeInfo?.remark || result?.remark || 'No remark';
         const color = gradeInfo?.grade ? getGradeColor(gradeInfo.grade) : '#9E9E9E';
 
         return (
@@ -190,14 +225,14 @@ const StudentSubjects = () => {
                     <TableBody>
                         {results.length > 0 ? (
                             results.map((result, index) => {
-                                if (!result.subName) return null;
+                                if (!result) return null;
                                 const subjectLabel = getSubjectLabel(result);
-                                const subjectId = String(result.subName?._id || result.subName);
+                                const subjectId = String(result.subName?._id || result.subName || result.subject?._id || result.subject || `result-${index}`);
                                 const subjectRank = reportSummary.subjectRanks?.[subjectId];
                                 const gradeInfo = calculateGrade(result.marksObtained, result.gradingSystem) || result;
                                 return (
                                     <StyledTableRow key={`${title}-${index}`}>
-                                        <StyledTableCell>{subjectLabel}<br /><small>Teacher: {result.subjectTeacher || result.subName?.teacher?.name || 'Not assigned'}</small></StyledTableCell>
+                                        <StyledTableCell>{subjectLabel}<br /><small>Teacher: {result.subjectTeacher || result.subName?.teacher?.name || result.subject?.teacher?.name || 'Not assigned'}</small></StyledTableCell>
                                         <StyledTableCell>{result.marksObtained ?? 'N/A'}</StyledTableCell>
                                         <StyledTableCell>{formatGrade(gradeInfo)}</StyledTableCell>
                                         <StyledTableCell>{result.points ?? 0}</StyledTableCell>
@@ -347,8 +382,8 @@ const StudentSubjects = () => {
                 <Typography variant="h6" gutterBottom>
                     And these are the subjects:
                 </Typography>
-                {subjectsList &&
-                    subjectsList.map((subject, index) => (
+                {studentSubjects &&
+                    studentSubjects.map((subject, index) => (
                         <div key={index}>
                             <Typography variant="subtitle1">
                                 {subject.subName} ({subject.subCode})

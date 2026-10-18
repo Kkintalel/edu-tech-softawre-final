@@ -1,0 +1,11 @@
+AdmissionNo,NEMISNumber,FirstName,LastName,Gender,DateOfBirth,Class,RollNumber,ParentName,ParentPhone
+TEST2026001,TEST-NEMIS-001,Kevin,Kiptoo,Male,2016-01-12,Grade 4,1,John Kiptoo,0700000001
+TEST2026002,TEST-NEMIS-002,Faith,Njeri,Female,2016-02-18,Grade 4,2,Mary Njeri,0700000002
+TEST2026003,TEST-NEMIS-003,Brian,Otieno,Male,2016-03-05,Grade 4,3,Peter Otieno,0700000003
+TEST2026004,TEST-NEMIS-004,Sharon,Wanjiku,Female,2016-04-22,Grade 4,4,Jane Wanjiku,0700000004
+TEST2026005,TEST-NEMIS-005,David,Mutua,Male,2016-05-14,Grade 4,5,Paul Mutua,0700000005
+TEST2026006,TEST-NEMIS-006,Grace,Akinyi,Female,2016-06-09,Grade 4,6,Anne Akinyi,0700000006
+TEST2026007,TEST-NEMIS-007,Samuel,Kiplangat,Male,2016-07-17,Grade 4,7,Daniel Kiplangat,0700000007
+TEST2026008,TEST-NEMIS-008,Mercy,Chebet,Female,2016-08-25,Grade 4,8,Esther Chebet,0700000008
+TEST2026009,TEST-NEMIS-009,Daniel,Kamau,Male,2016-09-11,Grade 4,9,James Kamau,0700000009
+TEST2026010,TEST-NEMIS-010,Joy,Atieno,Female,2016-10-03,Grade 4,10,Susan Atieno,0700000010

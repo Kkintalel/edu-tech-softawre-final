@@ -17,6 +17,7 @@ const PaymentHistory = lazy(() => import('./pages/parent/PaymentHistory'));
 const AccountantDashboard = lazy(() => import('./pages/accountant/AccountantDashboard'));
 const HRDashboard = lazy(() => import('./pages/hr/HRDashboard'));
 const StaffLoginSelector = lazy(() => import('./pages/StaffLoginSelector'));
+const PortalLogin = lazy(() => import('./pages/PortalLogin'));
 const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage'));
 const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'));
 const TermsPage = lazy(() => import('./pages/TermsPage'));
@@ -39,6 +40,7 @@ const App = () => {
         <Route path="/chooseasguest" element={<ChooseUser visitor="guest" />} />
         <Route path="/staff-login" element={<StaffLoginSelector />} />
         <Route path="/internal-login" element={<StaffLoginSelector />} />
+        <Route path="/portal-login" element={<PortalLogin />} />
 
         <Route path="/Adminlogin" element={<LoginPage role="Admin" />} />
         <Route path="/Accountantlogin" element={<LoginPage role="Accountant" />} />

@@ -74,9 +74,10 @@ const buildFinancialReport = (students = [], filters = {}) => {
             : null;
         const hasHistoricalAssessment = !filters.academicYear || Boolean(feeAssessment);
         const expectedFees = hasHistoricalAssessment
-            ? Number(filters.academicYear ? feeAssessment?.amount : student.totalFees || 0)
+            ? Number(filters.academicYear ? (feeAssessment?.newCharges ?? feeAssessment?.amount) : student.totalFees || 0)
             : null;
-        const balance = expectedFees === null ? null : Math.max(expectedFees - paid, 0);
+        const carriedForwardBalance = Number(filters.academicYear ? feeAssessment?.carriedForwardBalance || 0 : 0);
+        const balance = expectedFees === null ? null : Math.max(expectedFees + carriedForwardBalance - paid, 0);
         const status = expectedFees === null
             ? 'Unverified'
             : balance === 0 && expectedFees > 0 ? 'Paid' : paid > 0 ? 'Partial' : 'Unpaid';
@@ -89,6 +90,7 @@ const buildFinancialReport = (students = [], filters = {}) => {
             className: classRecord?.sclassName || '',
             stream: student.stream || student.streamName || '',
             expectedFees,
+            carriedForwardBalance,
             paid,
             periodAmountPaid: paid,
             balance,

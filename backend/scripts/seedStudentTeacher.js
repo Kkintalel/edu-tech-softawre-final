@@ -62,7 +62,14 @@ const ensureClassAndSubject = async (schoolId) => {
     console.log('Created subject Maths for class 1');
   }
 
-  return { sclass, subject };
+  let scienceSubject = await Subject.findOne({ subName: 'Science', sclassName: sclass._id, school: schoolId });
+  if (!scienceSubject) {
+    scienceSubject = new Subject({ subName: 'Science', subCode: 'SCI-001', sessions: 0, sclassName: sclass._id, school: schoolId });
+    await scienceSubject.save();
+    console.log('Created subject Science for class 1');
+  }
+
+  return { sclass, subject, scienceSubject };
 };
 
 const ensureTeacher = async (schoolId, sclassId, subjectId) => {
@@ -116,7 +123,7 @@ const ensureTeacher = async (schoolId, sclassId, subjectId) => {
   return teacher;
 };
 
-const ensureStudent = async (schoolId, sclassId) => {
+const ensureStudent = async (schoolId, sclassId, subjectId) => {
   const admissionNo = '001';
   const rollNum = 1;
   const password = '12345';
@@ -133,6 +140,7 @@ const ensureStudent = async (schoolId, sclassId) => {
       sclassName: sclassId,
       school: schoolId,
       role: 'Student',
+      individualSubjects: [subjectId],
     });
     await student.save();
     console.log(`Created student ${name} admissionNo=${admissionNo}`);
@@ -158,6 +166,10 @@ const ensureStudent = async (schoolId, sclassId) => {
       student.school = schoolId;
       updated = true;
     }
+    if (student.individualSubjects?.length !== 1 || student.individualSubjects[0]?.toString() !== subjectId.toString()) {
+      student.individualSubjects = [subjectId];
+      updated = true;
+    }
     const passwordMatch = await bcrypt.compare(password, student.password);
     if (!passwordMatch) {
       student.password = await bcrypt.hash(password, 10);
@@ -173,6 +185,37 @@ const ensureStudent = async (schoolId, sclassId) => {
   return student;
 };
 
+const ensureScienceStudent = async (schoolId, sclassId, subjectId) => {
+  const admissionNo = 'SAMPLE-002';
+  const rollNum = 2;
+  const password = '12345';
+  const name = 'Amina Otieno';
+  let student = await Student.findOne({ school: schoolId, admissionNo });
+
+  if (!student) {
+    student = new Student({
+      name,
+      admissionNo,
+      rollNum,
+      password: await bcrypt.hash(password, 10),
+      sclassName: sclassId,
+      school: schoolId,
+      role: 'Student',
+      individualSubjects: [subjectId],
+    });
+    await student.save();
+    console.log(`Created sample student ${name} with Science only`);
+    return student;
+  }
+
+  student.name = name;
+  student.rollNum = rollNum;
+  student.sclassName = sclassId;
+  student.individualSubjects = [subjectId];
+  await student.save();
+  return student;
+};
+
 const run = async () => {
   try {
     await mongoose.connect(MONGO_URI, {
@@ -181,14 +224,16 @@ const run = async () => {
     });
 
     const admin = await ensureSuperAdminSchool();
-    const { sclass, subject } = await ensureClassAndSubject(admin._id);
+    const { sclass, subject, scienceSubject } = await ensureClassAndSubject(admin._id);
     const teacher = await ensureTeacher(admin._id, sclass._id, subject._id);
-    const student = await ensureStudent(admin._id, sclass._id);
+    const student = await ensureStudent(admin._id, sclass._id, subject._id);
+    const scienceStudent = await ensureScienceStudent(admin._id, sclass._id, scienceSubject._id);
 
     console.log('Seed complete.');
     console.log(`Admin id: ${admin._id}`);
     console.log(`Teacher id: ${teacher._id}`);
     console.log(`Student id: ${student._id}`);
+    console.log(`Science-only sample student id: ${scienceStudent._id}`);
     await mongoose.connection.close();
     process.exit(0);
   } catch (err) {

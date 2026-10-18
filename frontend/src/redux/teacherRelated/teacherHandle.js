@@ -67,8 +67,13 @@ export const updateTeacherDetails = (teacherId, updateData) => async (dispatch) 
     dispatch(getRequest());
 
     try {
-        const result = await axios.put(`${process.env.REACT_APP_BASE_URL}/Teacher/${teacherId}`, updateData, {
-            headers: { 'Content-Type': 'application/json' },
+        const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+        const adminId = currentUser?._id || currentUser?.id;
+        const result = await axios.put(`${API_BASE_URL}/Teacher/${teacherId}`, updateData, {
+            headers: {
+                'Content-Type': 'application/json',
+                ...(adminId ? { 'x-admin-id': adminId, 'x-user-id': adminId } : {}),
+            },
         });
         dispatch(doneSuccess(result.data));
         return result.data;

@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const Settings = require('../models/settingsSchema');
+const TermTransition = require('../models/termTransitionSchema');
 const SecuritySettings = require('../models/securitySettingsSchema');
 const ReportSettings = require('../models/reportSettingsSchema');
 const SystemHealth = require('../models/systemHealthSchema');
@@ -25,6 +26,7 @@ const { applyClassFeeToStudent, summarizeFinanceReport } = require('../utils/fin
 const { Account, AccountingPeriod } = require('../models/accountingSchema');
 const AccountingService = require('../services/accountingService');
 const { recordFeeAssessment, resolveAcademicPeriod } = require('../utils/academicPeriod');
+const { calculateStudentTermTransition } = require('../utils/termTransition');
 
 // Branding upload handler will be used to accept logo uploads
 const uploadSchoolLogo = async (req, res) => {
@@ -165,6 +167,242 @@ const applyFinanceSettingsToStudents = async (schoolId, financeSettings = {}) =>
     return { appliedClasses: appliedClasses.length, updatedStudents };
 };
 
+const loadTermTransition = async (req, schoolId, session = null) => {
+    const adminId = req.get('x-admin-id') || req.get('x-user-id');
+    const auth = await verifyAuthorization(adminId, null, schoolId);
+    if (!auth.authorized) return { error: auth.message, status: 403 };
+
+    const admin = await Admin.findById(adminId).select('name email role');
+    if (!admin || !['Admin', 'SuperAdmin'].includes(admin.role)) {
+        return { error: 'Only an administrator can activate an academic term', status: 403 };
+    }
+    if (admin.role !== 'SuperAdmin') {
+        const adminSchoolId = normalizeSchoolRef(admin.school) || normalizeSchoolRef(admin.schoolId);
+        const targetSchool = await School.findById(schoolId).select('schoolAdmin');
+        const ownsSchool = String(admin._id) === String(schoolId)
+            || (adminSchoolId && String(adminSchoolId) === String(schoolId))
+            || (targetSchool?.schoolAdmin && (
+                String(targetSchool.schoolAdmin) === String(admin._id)
+                || String(targetSchool.schoolAdmin) === String(adminSchoolId)
+            ));
+        if (!ownsSchool) return { error: 'You are not authorized to activate terms for this school', status: 403 };
+    }
+
+    const sourceAcademicYear = String(req.body.sourceAcademicYear || '').trim();
+    const sourceTerm = String(req.body.sourceTerm || '').trim();
+    const academicYear = String(req.body.academicYear || '').trim();
+    const term = String(req.body.term || '').trim();
+    if (!sourceAcademicYear || !sourceTerm || !academicYear || !term) {
+        return { error: 'Current and next academic year and term are required', status: 400 };
+    }
+    if (sourceAcademicYear === academicYear && sourceTerm.toLowerCase() === term.toLowerCase()) {
+        return { error: 'The next term must differ from the current term', status: 400 };
+    }
+
+    const settingsQuery = Settings.findOne({ school: schoolId });
+    const settings = session ? await settingsQuery.session(session) : await settingsQuery;
+    if (settings?.activeAcademicYear && settings?.activeTerm && (
+        settings.activeAcademicYear !== sourceAcademicYear || settings.activeTerm !== sourceTerm
+    )) {
+        return { error: 'The selected current term is no longer active. Reload and review the transition.', status: 409 };
+    }
+
+    const transitionQuery = TermTransition.findOne({ schoolId, academicYear, term });
+    const existingTransition = session ? await transitionQuery.session(session) : await transitionQuery;
+    if (existingTransition) {
+        return { error: 'This academic term has already been activated', status: 409 };
+    }
+
+    const studentsQuery = Student.find({ school: schoolId }).populate('sclassName', 'sclassName');
+    const students = session ? await studentsQuery.session(session) : await studentsQuery;
+    const feeSchedules = settings?.financeSettings?.termFees || [];
+    const rows = [];
+    const missingClasses = new Set();
+    let totalNewCharges = 0;
+    let totalCarriedForward = 0;
+    let creditReviewCount = 0;
+    let pendingPaymentCount = 0;
+
+    for (const student of students) {
+        const classId = String(student.sclassName?._id || student.sclassName || '');
+        const feeSchedule = feeSchedules.find((entry) =>
+            String(entry.classId) === classId &&
+            entry.academicYear === academicYear &&
+            entry.term === term
+        );
+        if (!feeSchedule) {
+            missingClasses.add(student.sclassName?.sclassName || classId || 'Unassigned');
+            continue;
+        }
+
+        const balance = calculateStudentTermTransition(student, feeSchedule.feeAmount);
+        totalNewCharges += balance.termFeeAmount;
+        totalCarriedForward += balance.carriedForwardBalance;
+        if (balance.requiresCreditReview) creditReviewCount += 1;
+        pendingPaymentCount += balance.pendingPaymentCount;
+        rows.push({
+            studentId: student._id,
+            name: student.name,
+            admissionNo: student.admissionNo,
+            className: student.sclassName?.sclassName || 'Unassigned',
+            ...balance,
+        });
+    }
+
+    return {
+        schoolId,
+        admin,
+        settings,
+        sourceAcademicYear,
+        sourceTerm,
+        academicYear,
+        term,
+        rows,
+        missingClasses: [...missingClasses],
+        creditReviewCount,
+        pendingPaymentCount,
+        summary: {
+            studentCount: students.length,
+            totalNewCharges: Math.round((totalNewCharges + Number.EPSILON) * 100) / 100,
+            totalCarriedForward: Math.round((totalCarriedForward + Number.EPSILON) * 100) / 100,
+            projectedBalance: Math.round((rows.reduce((sum, row) => sum + row.projectedBalance, 0) + Number.EPSILON) * 100) / 100,
+        },
+    };
+};
+
+const previewTermTransition = async (req, res) => {
+    try {
+        const result = await loadTermTransition(req, req.params.schoolId);
+        if (result.error) return res.status(result.status).json({ message: result.error });
+        res.status(200).json({
+            sourceAcademicYear: result.sourceAcademicYear,
+            sourceTerm: result.sourceTerm,
+            academicYear: result.academicYear,
+            term: result.term,
+            summary: result.summary,
+            missingClasses: result.missingClasses,
+            creditReviewCount: result.creditReviewCount,
+            pendingPaymentCount: result.pendingPaymentCount,
+            students: result.rows,
+        });
+    } catch (error) {
+        res.status(500).json({ message: error.message || 'Unable to preview term transition' });
+    }
+};
+
+const activateNextTerm = async (req, res) => {
+    const session = await mongoose.startSession();
+    let resultSummary = null;
+    try {
+        await session.withTransaction(async () => {
+            const result = await loadTermTransition(req, req.params.schoolId, session);
+            if (result.error) {
+                const error = new Error(result.error);
+                error.status = result.status;
+                throw error;
+            }
+            if (result.missingClasses.length) {
+                const error = new Error(`Configure a fee for the next term for: ${result.missingClasses.join(', ')}`);
+                error.status = 409;
+                throw error;
+            }
+            if (result.creditReviewCount) {
+                const error = new Error(`${result.creditReviewCount} student balance(s) require credit review before activation`);
+                error.status = 409;
+                throw error;
+            }
+            if (result.pendingPaymentCount) {
+                const error = new Error(`${result.pendingPaymentCount} pending payment(s) must be reconciled before activation`);
+                error.status = 409;
+                throw error;
+            }
+
+            const transitionId = new mongoose.Types.ObjectId();
+            const destinationPeriodKey = `term:${result.academicYear}:${result.term.toLowerCase()}`;
+            for (const row of result.rows) {
+                const student = await Student.findOne({ _id: row.studentId, school: result.schoolId }).session(session);
+                if (!student) throw new Error(`Student ${row.admissionNo} changed during activation; retry the preview`);
+
+                student.feeAssessments.push({
+                    academicYear: result.academicYear,
+                    term: result.term,
+                    amount: row.termFeeAmount,
+                    newCharges: row.termFeeAmount,
+                    carriedForwardBalance: row.carriedForwardBalance,
+                    transitionId,
+                    effectiveAt: new Date(),
+                    changedBy: result.admin._id,
+                });
+                student.feePeriodKey = destinationPeriodKey;
+                student.carriedForwardBalance = row.carriedForwardBalance;
+                student.totalFees = row.projectedBalance;
+                student.amountPaid = 0;
+                student.balance = row.projectedBalance;
+                student.paymentStatus = row.projectedBalance <= 0 ? 'Completed' : 'Pending';
+
+                if (!Array.isArray(student.reportCardHistory)) student.reportCardHistory = [];
+                student.reportCardHistory.push({
+                    academicYear: result.sourceAcademicYear,
+                    term: result.sourceTerm,
+                    status: student.reportCardStatus || 'Draft',
+                    publishedAt: student.reportCardPublishedAt || null,
+                    publishedBy: student.reportCardPublishedBy || null,
+                });
+                student.reportCardStatus = 'Draft';
+                student.reportCardPublishedAt = null;
+                student.reportCardPublishedBy = null;
+            }
+
+            const [transition] = await TermTransition.create([{
+                _id: transitionId,
+                schoolId: result.schoolId,
+                sourceAcademicYear: result.sourceAcademicYear,
+                sourceTerm: result.sourceTerm,
+                academicYear: result.academicYear,
+                term: result.term,
+                studentCount: result.summary.studentCount,
+                totalNewCharges: result.summary.totalNewCharges,
+                totalCarriedForward: result.summary.totalCarriedForward,
+                activatedBy: result.admin._id,
+            }], { session });
+
+            result.settings = result.settings || new Settings({ school: result.schoolId });
+            result.settings.closedTerms = result.settings.closedTerms || [];
+            if (!result.settings.closedTerms.some((entry) => entry.academicYear === result.sourceAcademicYear && entry.term === result.sourceTerm)) {
+                result.settings.closedTerms.push({
+                    academicYear: result.sourceAcademicYear,
+                    term: result.sourceTerm,
+                    closedAt: new Date(),
+                    closedBy: result.admin._id,
+                });
+            }
+            result.settings.activeAcademicYear = result.academicYear;
+            result.settings.activeTerm = result.term;
+            await result.settings.save({ session });
+            resultSummary = { transition, summary: result.summary };
+        });
+
+        await logAuditAction({
+            school: req.params.schoolId,
+            user: resultSummary.transition.activatedBy,
+            userName: 'Administrator',
+            userRole: 'Admin',
+            action: 'ACTIVATE_TERM',
+            entityType: 'academic_term',
+            entityId: resultSummary.transition._id,
+            entityName: `${resultSummary.transition.term} ${resultSummary.transition.academicYear}`,
+            resultMessage: 'Next academic term activated and student fee balances carried forward',
+            metadata: resultSummary.summary,
+            req,
+        });
+        res.status(200).json({ message: 'Next term activated successfully', ...resultSummary });
+    } catch (error) {
+        res.status(error.status || 500).json({ message: error.message || 'Failed to activate next term' });
+    } finally {
+        await session.endSession();
+    }
+};
+
 // ==================== SYSTEM SETTINGS ====================
 
 /**
@@ -264,7 +502,8 @@ const updateSystemSettings = async (req, res) => {
         settings.updatedBy = adminId;
         await settings.save();
 
-        if (settings.financeSettings?.classFees?.length) {
+        const classFeesChanged = JSON.stringify(changesBefore.financeSettings?.classFees || []) !== JSON.stringify(settings.financeSettings?.classFees || []);
+        if (classFeesChanged && settings.financeSettings?.classFees?.length) {
             await applyFinanceSettingsToStudents(schoolId, settings.financeSettings);
         }
 
@@ -992,6 +1231,8 @@ module.exports = {
     getSystemSettings,
     getFinanceReport,
     updateSystemSettings,
+    previewTermTransition,
+    activateNextTerm,
     paySupplier,
     initializeSettings,
     
