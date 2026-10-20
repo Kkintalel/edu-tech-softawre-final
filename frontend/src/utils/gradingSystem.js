@@ -27,17 +27,55 @@ export const GRADING_SYSTEMS = {
         ],
     },
     knec: {
-        label: 'KNEC Raw Scores',
+        label: 'KNEC / KCSE Grades',
         entries: [
-            { min: 80, max: 100, grade: '1', level: 'Distinction', points: 1, remark: 'Distinction' },
-            { min: 75, max: 79, grade: '2', level: 'Distinction', points: 2, remark: 'Distinction' },
-            { min: 70, max: 74, grade: '3', level: 'Credit', points: 3, remark: 'Credit' },
-            { min: 60, max: 69, grade: '4', level: 'Credit', points: 4, remark: 'Credit' },
-            { min: 50, max: 59, grade: '5', level: 'Pass', points: 5, remark: 'Pass' },
-            { min: 40, max: 49, grade: '6', level: 'Pass', points: 6, remark: 'Pass' },
-            { min: 0, max: 39, grade: '7', level: 'Fail', points: 7, remark: 'Fail' },
+            { min: 80, max: 100, grade: 'A', level: 'Excellent', points: 12, remark: 'Excellent' },
+            { min: 75, max: 79, grade: 'A-', level: 'Excellent', points: 11, remark: 'Excellent' },
+            { min: 70, max: 74, grade: 'B+', level: 'Very Good', points: 10, remark: 'Very Good' },
+            { min: 65, max: 69, grade: 'B', level: 'Very Good', points: 9, remark: 'Very Good' },
+            { min: 60, max: 64, grade: 'B-', level: 'Good', points: 8, remark: 'Good' },
+            { min: 55, max: 59, grade: 'C+', level: 'Good', points: 7, remark: 'Good' },
+            { min: 50, max: 54, grade: 'C', level: 'Average', points: 6, remark: 'Average' },
+            { min: 45, max: 49, grade: 'C-', level: 'Average', points: 5, remark: 'Average' },
+            { min: 40, max: 44, grade: 'D+', level: 'Below Average', points: 4, remark: 'Below Average' },
+            { min: 35, max: 39, grade: 'D', level: 'Below Average', points: 3, remark: 'Below Average' },
+            { min: 30, max: 34, grade: 'D-', level: 'Needs Improvement', points: 2, remark: 'Needs Improvement' },
+            { min: 0, max: 29, grade: 'E', level: 'Needs Improvement', points: 1, remark: 'Needs Improvement' },
         ],
     },
+};
+
+const KNEC_GRADES_BY_POINTS = {
+    12: 'A',
+    11: 'A-',
+    10: 'B+',
+    9: 'B',
+    8: 'B-',
+    7: 'C+',
+    6: 'C',
+    5: 'C-',
+    4: 'D+',
+    3: 'D',
+    2: 'D-',
+    1: 'E',
+};
+
+export const calculateKnecMean = (results = []) => {
+    const knecResults = results.filter((result) => result?.gradingSystem === 'knec');
+    if (!knecResults.length) return null;
+
+    const totalPoints = knecResults.reduce((total, result) => {
+        const points = Number(result.points);
+        return total + (Number.isFinite(points) ? points : 0);
+    }, 0);
+    const meanPoints = totalPoints / knecResults.length;
+    const roundedPoints = Math.min(12, Math.max(1, Math.round(meanPoints)));
+
+    return {
+        totalPoints,
+        meanPoints,
+        meanGrade: KNEC_GRADES_BY_POINTS[roundedPoints],
+    };
 };
 
 export const getGradingSystemType = (type) => (
@@ -84,6 +122,10 @@ export const getGradeColor = (grade) => {
     if (grade === 'P') return '#1565C0';
     if (grade === 'C') return '#EF6C00';
     if (grade === 'NYC') return '#C62828';
+    if (grade === 'A' || grade === 'A-' || grade === 'B+') return '#2E7D32';
+    if (grade === 'B' || grade === 'B-' || grade === 'C+') return '#1565C0';
+    if (grade === 'C' || grade === 'C-' || grade === 'D+') return '#EF6C00';
+    if (grade === 'D' || grade === 'D-' || grade === 'E') return '#C62828';
     if (grade === '1' || grade === '2') return '#2E7D32';
     if (grade === '3' || grade === '4') return '#1565C0';
     if (grade === '5' || grade === '6') return '#EF6C00';
@@ -102,4 +144,4 @@ export const formatGrade = (gradeInfo) => {
     return `${gradeInfo.grade} (${gradeInfo.level}) - ${gradeInfo.remark}`;
 };
 
-export default { calculateGrade, getGradeColor, formatGrade, getGradingSystemType, GRADING_SYSTEMS };
+export default { calculateGrade, calculateKnecMean, getGradeColor, formatGrade, getGradingSystemType, GRADING_SYSTEMS };

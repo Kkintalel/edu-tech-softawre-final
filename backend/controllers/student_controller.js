@@ -40,14 +40,45 @@ const GRADING_TABLES = {
         { min: 0, grade: 'NYC', level: 'Not Yet Competent', points: 1, remark: 'Not Yet Competent' },
     ],
     knec: [
-        { min: 80, grade: '1', level: 'Distinction', points: 1, remark: 'Distinction' },
-        { min: 75, grade: '2', level: 'Distinction', points: 2, remark: 'Distinction' },
-        { min: 70, grade: '3', level: 'Credit', points: 3, remark: 'Credit' },
-        { min: 60, grade: '4', level: 'Credit', points: 4, remark: 'Credit' },
-        { min: 50, grade: '5', level: 'Pass', points: 5, remark: 'Pass' },
-        { min: 40, grade: '6', level: 'Pass', points: 6, remark: 'Pass' },
-        { min: 0, grade: '7', level: 'Fail', points: 7, remark: 'Fail' },
+        { min: 80, grade: 'A', level: 'Excellent', points: 12, remark: 'Excellent' },
+        { min: 75, grade: 'A-', level: 'Excellent', points: 11, remark: 'Excellent' },
+        { min: 70, grade: 'B+', level: 'Very Good', points: 10, remark: 'Very Good' },
+        { min: 65, grade: 'B', level: 'Very Good', points: 9, remark: 'Very Good' },
+        { min: 60, grade: 'B-', level: 'Good', points: 8, remark: 'Good' },
+        { min: 55, grade: 'C+', level: 'Good', points: 7, remark: 'Good' },
+        { min: 50, grade: 'C', level: 'Average', points: 6, remark: 'Average' },
+        { min: 45, grade: 'C-', level: 'Average', points: 5, remark: 'Average' },
+        { min: 40, grade: 'D+', level: 'Below Average', points: 4, remark: 'Below Average' },
+        { min: 35, grade: 'D', level: 'Below Average', points: 3, remark: 'Below Average' },
+        { min: 30, grade: 'D-', level: 'Needs Improvement', points: 2, remark: 'Needs Improvement' },
+        { min: 0, grade: 'E', level: 'Needs Improvement', points: 1, remark: 'Needs Improvement' },
     ],
+};
+
+const KNEC_GRADES_BY_POINTS = {
+    12: 'A',
+    11: 'A-',
+    10: 'B+',
+    9: 'B',
+    8: 'B-',
+    7: 'C+',
+    6: 'C',
+    5: 'C-',
+    4: 'D+',
+    3: 'D',
+    2: 'D-',
+    1: 'E',
+};
+
+const getKnecMean = (results = []) => {
+    const knecResults = results.filter((result) => result?.gradingSystem === 'knec');
+    if (!knecResults.length) return null;
+
+    const totalPoints = knecResults.reduce((total, result) => total + Number(result.points || 0), 0);
+    const meanPoints = totalPoints / knecResults.length;
+    const roundedPoints = Math.min(12, Math.max(1, Math.round(meanPoints)));
+
+    return { totalPoints, meanPoints, meanGrade: KNEC_GRADES_BY_POINTS[roundedPoints] };
 };
 
 const calculateResultGrade = (marks, gradingSystem = 'achievement') => {
@@ -784,6 +815,7 @@ const getStudentDetail = async (req, res) => {
         studentObj.reportSummary = {
             totalMarks: studentTotalMarks,
             totalPoints: studentTotalPoints,
+            ...getKnecMean((student.examResult || []).map(getComputedResult)),
             average: (student.examResult || []).length ? studentTotalMarks / student.examResult.length : 0,
             overallRank: rankFor(studentTotalMarks, 'totalMarks'),
             overallOutOf: totals.length,
@@ -2004,6 +2036,7 @@ const getAcademicReport = async (req, res) => {
             const studentTotal = totals.find((entry) => entry.id === studentId) || { totalMarks: 0, totalPoints: 0 };
             const termResults = getTermResults(student);
             const termAverage = termResults.length ? studentTotal.totalMarks / termResults.length : 0;
+            const knecMean = getKnecMean(termResults);
             const automaticRemarks = getCbcReportRemarks(termAverage, termResults.length > 0);
             const subjectTotals = {};
             getTermResults(student).forEach((result) => {
@@ -2039,6 +2072,7 @@ const getAcademicReport = async (req, res) => {
                     totalMarksPossible: termResults.length * 100,
                     average: termAverage,
                     totalPoints: studentTotal.totalPoints,
+                    ...(knecMean || {}),
                     overallRank: rankFor(studentTotal.totalMarks, 'totalMarks'),
                     overallOutOf: totals.length,
                     subjectRanks,
@@ -2665,6 +2699,7 @@ module.exports = {
     buildAcademicReportQuery,
     filterResultsForReport,
     getComputedResult,
+    getKnecMean,
     searchStudent,
     buildStudentSearchSchoolFilter,
     buildStudentSearchConditions,

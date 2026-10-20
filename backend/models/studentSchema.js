@@ -369,7 +369,10 @@ studentSchema.pre('validate', function assignPaymentPeriod(next) {
 });
 
 studentSchema.index({ school: 1, admissionNo: 1 }, { unique: true });
-studentSchema.index({ school: 1, sclassName: 1, rollNum: 1 }, { unique: true });
+studentSchema.index(
+    { school: 1, sclassName: 1, rollNum: 1 },
+    { unique: true, partialFilterExpression: { rollNum: { $type: 'number' } } }
+);
 studentSchema.index({ school: 1, email: 1 }, {
     unique: true,
     sparse: true,

@@ -4,7 +4,7 @@ import { getSubjectList } from '../../redux/sclassRelated/sclassHandle';
 import { BottomNavigation, BottomNavigationAction, Container, Paper, Table, TableBody, TableHead, Typography, Box, Chip, Button } from '@mui/material';
 import { getUserDetails } from '../../redux/userRelated/userHandle';
 import CustomBarChart from '../../components/CustomBarChart'
-import { calculateGrade, getGradeColor, formatGrade } from '../../utils/gradingSystem';
+import { calculateGrade, calculateKnecMean, getGradeColor, formatGrade } from '../../utils/gradingSystem';
 import { calculateOverallAttendancePercentage } from '../../components/attendanceCalculator';
 import { buildPrintBrandingHtml, getSchoolBranding, printBrandingStyles } from '../../utils/printBranding';
 import { LineChart, Line, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
@@ -59,6 +59,9 @@ const StudentSubjects = () => {
     const reportSummary = userDetails?.reportSummary || {};
     const schoolBranding = getSchoolBranding(currentUser, userDetails?.school);
     const allResults = Array.isArray(subjectMarks) ? subjectMarks : [];
+    const knecMean = reportSummary.meanGrade
+        ? reportSummary
+        : calculateKnecMean(allResults);
     const totalMarksScored = Number(reportSummary.totalMarks ?? allResults.reduce((sum, result) => sum + Number(result.marksObtained || 0), 0));
     const totalMarksPossible = allResults.length * 100;
     const averageMarks = allResults.length ? totalMarksScored / allResults.length : 0;
@@ -283,6 +286,7 @@ const StudentSubjects = () => {
                     <Box><Typography variant="subtitle2" color="textSecondary">Total Marks</Typography><Typography variant="h6">{totalMarksScored}/{totalMarksPossible || 0}</Typography></Box>
                     <Box><Typography variant="subtitle2" color="textSecondary">Average</Typography><Typography variant="h6">{averageMarks.toFixed(1)}%</Typography></Box>
                     <Box><Typography variant="subtitle2" color="textSecondary">Total Points</Typography><Typography variant="h6">{reportSummary.totalPoints ?? 0}</Typography></Box>
+                    {knecMean && <Box><Typography variant="subtitle2" color="textSecondary">KNEC Mean Points / Grade</Typography><Typography variant="h6">{Number(knecMean.meanPoints).toFixed(2)} / {knecMean.meanGrade}</Typography></Box>}
                     <Box><Typography variant="subtitle2" color="textSecondary">Overall Position</Typography><Typography variant="h6">{reportSummary.overallRank ? `${reportSummary.overallRank}/${reportSummary.overallOutOf}` : 'N/A'}</Typography></Box>
                 </Box>
                 <Box sx={{ mb: 3, p: 2, border: '1px solid #e0e0e0', borderRadius: 2, display: 'flex', justifyContent: 'space-around', flexWrap: 'wrap', gap: 2 }}>

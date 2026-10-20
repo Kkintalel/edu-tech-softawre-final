@@ -21,6 +21,7 @@ import {
 } from '@mui/material';
 import { Print } from '@mui/icons-material';
 import { buildPrintBrandingHtml, getSchoolBranding, printBrandingStyles } from '../../utils/printBranding';
+import { calculateKnecMean } from '../../utils/gradingSystem';
 
 const API_BASE_URL = process.env.REACT_APP_BASE_URL || 'http://localhost:5000';
 
@@ -89,6 +90,9 @@ const ParentProgress = () => {
   }, [initialStudent, navigate]);
 
   const schoolBranding = useMemo(() => getSchoolBranding(currentUser, report?.school || currentUser?.school), [currentUser, report]);
+  const knecMean = report?.reportSummary?.meanGrade
+    ? report.reportSummary
+    : calculateKnecMean(report?.examResult || []);
 
   const handlePrint = () => {
     const content = document.getElementById('parent-progress-print');
@@ -186,6 +190,12 @@ const ParentProgress = () => {
               <Typography variant='subtitle2' color='textSecondary'>Total Points</Typography>
               <Typography variant='h6'>{report.reportSummary?.totalPoints ?? 0}</Typography>
             </Box>
+            {knecMean && (
+              <Box>
+                <Typography variant='subtitle2' color='textSecondary'>KNEC Mean Points / Grade</Typography>
+                <Typography variant='h6'>{Number(knecMean.meanPoints).toFixed(2)} / {knecMean.meanGrade}</Typography>
+              </Box>
+            )}
           </Box>
         </Paper>
 

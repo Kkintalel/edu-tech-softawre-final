@@ -2,6 +2,7 @@ const {
   buildAcademicReportQuery,
   filterResultsForReport,
   getComputedResult,
+  getKnecMean,
 } = require('../controllers/student_controller');
 const mongoose = require('mongoose');
 const Student = require('../models/studentSchema');
@@ -57,5 +58,22 @@ describe('Academic report filters', () => {
       academicYear: '2026',
       marksObtained: 84,
     });
+  });
+
+  test('uses KNEC letter grades and calculates mean points from the example scores', () => {
+    const scores = [76, 82, 68, 57, 62, 73, 51, 65];
+    const results = scores.map((marksObtained) => getComputedResult({ marksObtained, gradingSystem: 'knec' }));
+
+    expect(results.map(({ grade, points }) => [grade, points])).toEqual([
+      ['A-', 11],
+      ['A', 12],
+      ['B', 9],
+      ['C+', 7],
+      ['B-', 8],
+      ['B+', 10],
+      ['C', 6],
+      ['B', 9],
+    ]);
+    expect(getKnecMean(results)).toEqual({ totalPoints: 72, meanPoints: 9, meanGrade: 'B' });
   });
 });

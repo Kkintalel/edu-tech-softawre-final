@@ -117,7 +117,7 @@ const runAutomaticBackups = async () => {
     }
 };
 
-const repairStudentEmailIndex = async () => {
+const repairStudentIndexes = async () => {
     if (mongoose.connection.readyState !== 1) return;
 
     try {
@@ -134,6 +134,20 @@ const repairStudentEmailIndex = async () => {
             { school: 1, email: 1 },
             { unique: true, sparse: true, partialFilterExpression: { email: { $type: 'string' } } }
         );
+
+        const rollNumberIndex = indexes.find((index) => index.name === 'school_1_sclassName_1_rollNum_1');
+        if (rollNumberIndex?.partialFilterExpression?.rollNum?.$type !== 'number') {
+            if (rollNumberIndex) {
+                await studentCollection.dropIndex('school_1_sclassName_1_rollNum_1');
+            }
+            await studentCollection.createIndex(
+                { school: 1, sclassName: 1, rollNum: 1 },
+                {
+                    unique: true,
+                    partialFilterExpression: { rollNum: { $type: 'number' } },
+                }
+            );
+        }
     } catch (error) {
         if (error && error.code === 26) {
             return;
@@ -184,7 +198,7 @@ if (require.main === module) {
     connectToMongo(MONGO_URI)
         .then(async () => {
             console.log('MongoDB connection established.');
-            await repairStudentEmailIndex();
+            await repairStudentIndexes();
             enforceAllSubscriptionStatuses().catch((err) => {
                 console.error('Automatic subscription status check failed:', err.message || err);
             });

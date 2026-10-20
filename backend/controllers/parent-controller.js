@@ -20,6 +20,20 @@ const GRADING_TABLES = {
         { min: 11, grade: 'BE1', level: 'AL2', points: 2, remark: 'Below Expectation' },
         { min: 0, grade: 'BE2', level: 'AL1', points: 1, remark: 'Below Expectation' },
     ],
+    knec: [
+        { min: 80, grade: 'A', level: 'Excellent', points: 12, remark: 'Excellent' },
+        { min: 75, grade: 'A-', level: 'Excellent', points: 11, remark: 'Excellent' },
+        { min: 70, grade: 'B+', level: 'Very Good', points: 10, remark: 'Very Good' },
+        { min: 65, grade: 'B', level: 'Very Good', points: 9, remark: 'Very Good' },
+        { min: 60, grade: 'B-', level: 'Good', points: 8, remark: 'Good' },
+        { min: 55, grade: 'C+', level: 'Good', points: 7, remark: 'Good' },
+        { min: 50, grade: 'C', level: 'Average', points: 6, remark: 'Average' },
+        { min: 45, grade: 'C-', level: 'Average', points: 5, remark: 'Average' },
+        { min: 40, grade: 'D+', level: 'Below Average', points: 4, remark: 'Below Average' },
+        { min: 35, grade: 'D', level: 'Below Average', points: 3, remark: 'Below Average' },
+        { min: 30, grade: 'D-', level: 'Needs Improvement', points: 2, remark: 'Needs Improvement' },
+        { min: 0, grade: 'E', level: 'Needs Improvement', points: 1, remark: 'Needs Improvement' },
+    ],
 };
 
 const calculateResultGrade = (marks, gradingSystem = 'achievement') => {
@@ -522,6 +536,13 @@ const getParentStudentProgress = async (req, res) => {
 
         const totalMarks = examResult.reduce((sum, result) => sum + Number(result.marksObtained || 0), 0);
         const totalPoints = examResult.reduce((sum, result) => sum + Number(result.points || 0), 0);
+        const knecResults = examResult.filter((result) => result.gradingSystem === 'knec');
+        const meanPoints = knecResults.length
+            ? knecResults.reduce((sum, result) => sum + Number(result.points || 0), 0) / knecResults.length
+            : null;
+        const meanGrade = meanPoints === null
+            ? null
+            : ({ 12: 'A', 11: 'A-', 10: 'B+', 9: 'B', 8: 'B-', 7: 'C+', 6: 'C', 5: 'C-', 4: 'D+', 3: 'D', 2: 'D-', 1: 'E' })[Math.min(12, Math.max(1, Math.round(meanPoints)))];
         const average = examResult.length ? totalMarks / examResult.length : 0;
 
         const resultPayload = {
@@ -540,6 +561,7 @@ const getParentStudentProgress = async (req, res) => {
             reportSummary: {
                 totalMarks,
                 totalPoints,
+                ...(meanPoints === null ? {} : { meanPoints, meanGrade }),
                 average,
                 totalMarksPossible: examResult.length * 100,
                 overallRank: null,

@@ -326,6 +326,8 @@ const AcademicReport = () => {
                                 <TableCell>Class</TableCell>
                                 <TableCell>Marks</TableCell>
                                 <TableCell>Average</TableCell>
+                                <TableCell>Total Points</TableCell>
+                                <TableCell>KNEC Mean</TableCell>
                                 <TableCell>Overall Rank</TableCell>
                                 <TableCell>Results</TableCell>
                             </TableRow>
@@ -339,6 +341,8 @@ const AcademicReport = () => {
                                     <TableCell>{typeof student.class === 'object' ? student.class?.sclassName || 'N/A' : student.class || 'N/A'}</TableCell>
                                     <TableCell>{student.reportSummary?.totalMarks ?? 0}</TableCell>
                                     <TableCell>{student.reportSummary?.average ? Number(student.reportSummary.average).toFixed(1) : '0.0'}</TableCell>
+                                    <TableCell>{student.reportSummary?.totalPoints ?? 0}</TableCell>
+                                    <TableCell>{student.reportSummary?.meanGrade ? `${Number(student.reportSummary.meanPoints).toFixed(2)} / ${student.reportSummary.meanGrade}` : 'N/A'}</TableCell>
                                     <TableCell>{student.reportSummary?.overallRank ? `${student.reportSummary.overallRank}/${student.reportSummary.overallOutOf || 1}` : 'N/A'}</TableCell>
                                     <TableCell>
                                         {student.results?.length > 0 ? (
