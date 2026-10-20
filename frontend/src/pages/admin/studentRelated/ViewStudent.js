@@ -16,7 +16,7 @@ import { calculateOverallAttendancePercentage, calculateSubjectAttendancePercent
 import CustomBarChart from '../../../components/CustomBarChart'
 import CustomPieChart from '../../../components/CustomPieChart'
 import { StyledTableCell, StyledTableRow } from '../../../components/styles';
-import { getSchoolBranding } from '../../../utils/printBranding';
+import { buildPrintBrandingHtml, getSchoolBranding, printBrandingStyles } from '../../../utils/printBranding';
 
 import InsertChartIcon from '@mui/icons-material/InsertChart';
 import InsertChartOutlinedIcon from '@mui/icons-material/InsertChartOutlined';
